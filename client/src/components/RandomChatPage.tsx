@@ -51,6 +51,7 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
   const [floatingReactions, setFloatingReactions] = useState<FloatingReaction[]>([]);
   const [callStartedAt, setCallStartedAt] = useState<number | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [connectionIssue, setConnectionIssue] = useState("");
 
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const hasStartedRef = useRef(hasStarted);
@@ -211,6 +212,7 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
       setLiveMessages([]);
       setFloatingReactions([]);
       setCallStartedAt(null);
+      setConnectionIssue("");
       setIsMatching(false);
       setHasStarted(true);
     });
@@ -221,6 +223,7 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
       setRoomRevealPending(false);
       setShowLiveChat(false);
       setCallStartedAt(null);
+      setConnectionIssue("");
       
       // Auto-search for next partner if the session hasn't been explicitly stopped
       if (hasStartedRef.current) {
@@ -257,11 +260,13 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
 
   useEffect(() => {
     // If Zego gets stuck connecting (e.g. ICE failures, network issues),
-    // automatically skip to the next partner after 12 seconds
+    // stop auto-skipping and show a clear failure state instead.
     if (zegoConnecting) {
       const timer = setTimeout(() => {
-        console.warn("Zego connection timed out, skipping to next partner...");
-        nextMatch();
+        console.warn("Zego connection timed out.");
+        setZegoConnecting(false);
+        setRoomRevealPending(false);
+        setConnectionIssue("Matched with someone, but the video connection timed out. Tap Next to try another partner.");
       }, 12000);
       return () => clearTimeout(timer);
     }
@@ -282,6 +287,7 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
       setLiveMessages([]);
       setFloatingReactions([]);
       setCallStartedAt(null);
+      setConnectionIssue("");
       return;
     }
 
@@ -395,6 +401,7 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
     setLiveMessages([]);
     setFloatingReactions([]);
     setCallStartedAt(null);
+    setConnectionIssue("");
     setIsMatching(true);
     setHasStarted(true);
     getSocket()?.emit("match:join-queue");
@@ -410,6 +417,7 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
     setLiveMessages([]);
     setFloatingReactions([]);
     setCallStartedAt(null);
+    setConnectionIssue("");
     setIsMatching(false);
     setHasStarted(false);
   }
@@ -423,6 +431,7 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
     setLiveMessages([]);
     setFloatingReactions([]);
     setCallStartedAt(null);
+    setConnectionIssue("");
     setIsMatching(true);
     setHasStarted(true);
     window.setTimeout(() => {
@@ -492,7 +501,9 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
           }
         }}
       >
-        {match && actionMessage ? <div className="call-inline-status">{actionMessage}</div> : null}
+        {match && (actionMessage || connectionIssue) ? (
+          <div className="call-inline-status">{connectionIssue || actionMessage}</div>
+        ) : null}
         {match ? (
           <div className="call-stage-topbar" onClick={(event) => event.stopPropagation()}>
             <div className="call-stage-pill live">
@@ -590,6 +601,7 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
                   setZegoConnecting(false);
                   setRoomRevealPending(false);
                   setCallStartedAt(Date.now());
+                  setConnectionIssue("");
                 }, 1100);
               }}
             />
