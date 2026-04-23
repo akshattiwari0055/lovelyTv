@@ -7,6 +7,7 @@ import { getConversationRoom } from "./utils.js";
 const onlineUsers = new Map<string, string>();
 const waitingQueue = new Set<string>();
 const activeMatches = new Map<string, string>();
+let queueProcessing = false;
 
 async function isBlockedBetween(userAId: string, userBId: string) {
   const existingBlock = await prisma.userBlock.findFirst({
@@ -39,6 +40,126 @@ export function endActiveMatch(userId: string) {
   activeMatches.delete(userId);
   activeMatches.delete(partnerId);
   return partnerId;
+}
+
+function getPublicUserPayload(user: Awaited<ReturnType<typeof prisma.user.findUnique>>) {
+  if (!user) {
+    return null;
+  }
+
+  return {
+    id: user.id,
+    fullName: user.fullName,
+    email: user.email,
+    bio: user.bio,
+    interests: user.interests
+  };
+}
+
+async function processWaitingQueue(io: Server) {
+  if (queueProcessing) {
+    return;
+  }
+
+  queueProcessing = true;
+
+  try {
+    let pairedInThisPass = true;
+
+    while (pairedInThisPass) {
+      pairedInThisPass = false;
+      const queueSnapshot = [...waitingQueue].filter((userId) => onlineUsers.has(userId) && !activeMatches.has(userId));
+
+      for (let index = 0; index < queueSnapshot.length; index += 1) {
+        const currentUserId = queueSnapshot[index];
+
+        if (!waitingQueue.has(currentUserId) || activeMatches.has(currentUserId) || !onlineUsers.has(currentUserId)) {
+          continue;
+        }
+
+        let partnerId: string | null = null;
+
+        for (let partnerIndex = index + 1; partnerIndex < queueSnapshot.length; partnerIndex += 1) {
+          const candidateId = queueSnapshot[partnerIndex];
+
+          if (
+            !waitingQueue.has(candidateId) ||
+            activeMatches.has(candidateId) ||
+            !onlineUsers.has(candidateId) ||
+            candidateId === currentUserId
+          ) {
+            continue;
+          }
+
+          if (await isBlockedBetween(currentUserId, candidateId)) {
+            continue;
+          }
+
+          partnerId = candidateId;
+          break;
+        }
+
+        if (!partnerId) {
+          continue;
+        }
+
+        waitingQueue.delete(currentUserId);
+        waitingQueue.delete(partnerId);
+
+        const [currentUser, partner] = await Promise.all([
+          prisma.user.findUnique({ where: { id: currentUserId } }),
+          prisma.user.findUnique({ where: { id: partnerId } })
+        ]);
+
+        if (!currentUser || !partner || !onlineUsers.has(currentUserId) || !onlineUsers.has(partnerId)) {
+          if (onlineUsers.has(currentUserId) && !activeMatches.has(currentUserId)) {
+            waitingQueue.add(currentUserId);
+          }
+          if (onlineUsers.has(partnerId) && !activeMatches.has(partnerId)) {
+            waitingQueue.add(partnerId);
+          }
+          continue;
+        }
+
+        const currentUserSocketId = onlineUsers.get(currentUserId);
+        const partnerSocketId = onlineUsers.get(partnerId);
+
+        if (!currentUserSocketId || !partnerSocketId) {
+          if (currentUserSocketId && !activeMatches.has(currentUserId)) {
+            waitingQueue.add(currentUserId);
+          }
+          if (partnerSocketId && !activeMatches.has(partnerId)) {
+            waitingQueue.add(partnerId);
+          }
+          continue;
+        }
+
+        const roomId = `lputv-${currentUserId.slice(0, 6)}-${partnerId.slice(0, 6)}-${Date.now()}`;
+        const payload = {
+          roomId,
+          matchedAt: new Date().toISOString()
+        };
+
+        activeMatches.set(currentUserId, partnerId);
+        activeMatches.set(partnerId, currentUserId);
+
+        io.to(currentUserSocketId).emit("match:found", {
+          ...payload,
+          partner: getPublicUserPayload(partner)
+        });
+
+        io.to(partnerSocketId).emit("match:found", {
+          ...payload,
+          partner: getPublicUserPayload(currentUser)
+        });
+
+        pairedInThisPass = true;
+        break;
+      }
+    }
+  } finally {
+    queueProcessing = false;
+  }
 }
 
 export function attachSocketHandlers(io: Server) {
@@ -178,68 +299,9 @@ export function attachSocketHandlers(io: Server) {
         waitingQueue.delete(existingPartnerId);
       }
 
-      const candidates = [...waitingQueue].filter((id) => id !== currentUser.id && onlineUsers.has(id));
-      let partnerId: string | undefined;
-
-      for (const candidateId of candidates) {
-        if (!(await isBlockedBetween(currentUser.id, candidateId))) {
-          partnerId = candidateId;
-          break;
-        }
-      }
-
-      if (!partnerId) {
-        waitingQueue.add(currentUser.id);
-        socket.emit("match:waiting");
-        return;
-      }
-
-      waitingQueue.delete(partnerId);
-
-      const [me, partner] = await Promise.all([
-        prisma.user.findUnique({ where: { id: currentUser.id } }),
-        prisma.user.findUnique({ where: { id: partnerId } })
-      ]);
-
-      if (!me || !partner) {
-        waitingQueue.add(currentUser.id);
-        socket.emit("match:waiting");
-        return;
-      }
-
-      const roomId = `lputv-${currentUser.id.slice(0, 6)}-${partnerId.slice(0, 6)}-${Date.now()}`;
-      const payload = {
-        roomId,
-        matchedAt: new Date().toISOString()
-      };
-
-      activeMatches.set(currentUser.id, partner.id);
-      activeMatches.set(partner.id, currentUser.id);
-
-      socket.emit("match:found", {
-        ...payload,
-        partner: {
-          id: partner.id,
-          fullName: partner.fullName,
-          email: partner.email,
-          bio: partner.bio,
-          interests: partner.interests
-        }
-      });
-
-      const partnerSocketId = onlineUsers.get(partnerId);
-      if (partnerSocketId) {
-        io.to(partnerSocketId).emit("match:found", {
-          ...payload,
-          partner: {
-            id: me.id,
-            fullName: me.fullName,
-            email: me.email,
-            bio: me.bio,
-            interests: me.interests
-          }
-        });
-      }
+      waitingQueue.add(currentUser.id);
+      socket.emit("match:waiting");
+      await processWaitingQueue(io);
     });
 
     socket.on("match:leave-queue", () => {
@@ -259,6 +321,8 @@ export function attachSocketHandlers(io: Server) {
           message: `${currentUser.fullName} left the chat.`
         });
       }
+
+      void processWaitingQueue(io);
     });
 
     socket.on("match:reaction", ({ emoji }: { emoji: string }) => {
@@ -318,6 +382,7 @@ export function attachSocketHandlers(io: Server) {
 
       waitingQueue.delete(currentUser.id);
       onlineUsers.delete(currentUser.id);
+      void processWaitingQueue(io);
     });
   });
 }

@@ -1041,9 +1041,8 @@ textarea {
 }
 
 .ome-dashboard-shell {
-  width: min(100% - 32px, 1400px);
+  width: min(100%, 1400px);
   margin: 0 auto;
-  /* Add a subtle glow behind the whole dashboard */
   position: relative;
 }
 
@@ -1066,13 +1065,13 @@ textarea {
   min-height: calc(100vh - 48px);
   display: grid;
   grid-template-columns: 220px minmax(0, 1fr);
-  border-radius: 38px;
-  border: 1px solid rgba(255, 255, 255, 0.05);
-  background: rgba(15, 20, 32, 0.7);
+  border-radius: 0;
+  border: 0;
+  background: transparent;
   backdrop-filter: blur(30px);
   -webkit-backdrop-filter: blur(30px);
   overflow: hidden;
-  box-shadow: 0 40px 100px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  box-shadow: none;
 }
 
 .ome-side-nav {
@@ -1239,6 +1238,7 @@ textarea {
   font-weight: 700;
   color: #fff;
   letter-spacing: -0.02em;
+  text-align: center;
 }
 
 .ome-menu-button {
@@ -1577,6 +1577,43 @@ textarea {
   font-weight: 700;
 }
 
+.suggested-carousel {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(240px, 280px);
+  gap: 12px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  scroll-snap-type: x proximity;
+}
+
+.suggested-carousel::-webkit-scrollbar {
+  height: 6px;
+}
+
+.suggested-carousel::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.suggested-carousel-card {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+  padding: 16px;
+  width: 100%;
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  min-height: 198px;
+  scroll-snap-align: start;
+}
+
+.suggested-carousel-card .compact-button {
+  width: 100%;
+  justify-content: center;
+}
+
 .suggested-grid,
 .discover-list,
 .requests-list,
@@ -1721,6 +1758,35 @@ textarea {
   color: #fff;
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.friends-preview-list.compact {
+  gap: 10px;
+}
+
+.friend-preview-card.compact {
+  justify-content: flex-start;
+  width: 100%;
+}
+
+.friend-preview-copy {
+  display: grid;
+  gap: 3px;
+  text-align: left;
+  min-width: 0;
+}
+
+.friend-preview-copy strong {
+  color: #fff;
+  font-size: 0.96rem;
+}
+
+.friend-preview-copy small {
+  color: var(--muted);
+  font-size: 0.8rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .whatsapp-list {
@@ -2195,7 +2261,24 @@ textarea {
   display: none;
 }
 
+.ome-nav-badge {
+  position: absolute;
+  top: 8px;
+  right: 18px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: #ff6b6b;
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 800;
+}
+
 .ome-nav-item {
+  position: relative;
   display: grid;
   justify-items: center;
   gap: 6px;
@@ -2212,6 +2295,22 @@ textarea {
 
 .ome-nav-item.active {
   color: #fff;
+  background: rgba(255, 188, 89, 0.14);
+}
+
+.ome-profile-trigger {
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.ome-profile-trigger.active {
+  border-color: rgba(255, 188, 89, 0.32);
   background: rgba(255, 188, 89, 0.14);
 }
 
@@ -3249,7 +3348,19 @@ textarea {
   }
 
   .ome-bottom-nav {
-    display: none;
+    position: sticky;
+    bottom: 0;
+    z-index: 8;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 8px;
+    margin: auto 14px 14px;
+    padding: 10px;
+    border-radius: 22px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(9, 13, 23, 0.96);
+    backdrop-filter: blur(18px);
+    box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.22);
   }
 
   .ome-composer {
@@ -3261,6 +3372,10 @@ textarea {
   .ome-chat-layout,
   .ome-profile-layout {
     grid-template-columns: 1fr;
+  }
+
+  .suggested-carousel {
+    grid-auto-columns: minmax(220px, 260px);
   }
 
   .ome-content-shell {
