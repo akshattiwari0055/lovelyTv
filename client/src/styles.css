@@ -3062,6 +3062,15 @@ textarea {
     grid-template-columns: 1fr;
   }
 
+  .ome-content-shell {
+    overflow: hidden;
+  }
+
+  .ome-main-content {
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
   .insta-chat-layout {
     gap: 14px;
   }
@@ -3261,11 +3270,72 @@ textarea {
     padding-bottom: 14px;
   }
 
+  .dashboard-home-grid {
+    gap: 12px;
+  }
+
+  .ome-hero-card {
+    padding: 22px 18px 18px;
+    border-radius: 24px;
+  }
+
+  .ome-hero-copy h1 {
+    font-size: 1.72rem;
+    line-height: 1.08;
+    margin-bottom: 10px;
+  }
+
+  .ome-hero-copy p:last-child {
+    max-width: none;
+    font-size: 0.94rem;
+    line-height: 1.45;
+  }
+
+  .ome-hero-actions {
+    margin-top: 16px;
+    max-width: none;
+  }
+
+  .ome-start-button {
+    min-height: 56px;
+    border-radius: 18px;
+    font-size: 0.98rem;
+  }
+
+  .ome-section {
+    padding: 14px;
+    border-radius: 22px;
+  }
+
+  .ome-section-head {
+    margin-bottom: 12px;
+  }
+
+  .ome-section-head h3 {
+    font-size: 1.45rem;
+  }
+
   .suggested-card,
   .discover-card,
   .request-item {
     grid-template-columns: 1fr;
     justify-items: start;
+    gap: 10px;
+    padding: 12px;
+    border-radius: 18px;
+  }
+
+  .suggested-card .compact-button {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .suggested-copy strong {
+    font-size: 1rem;
+  }
+
+  .suggested-copy span {
+    font-size: 0.88rem;
   }
 
   .profile-stats {
