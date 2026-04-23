@@ -39,6 +39,10 @@ function getRequestErrorMessage(err: any, fallback: string) {
     return responseMessage;
   }
 
+  if (err?.code === "ECONNABORTED") {
+    return "Request timed out. Please try again.";
+  }
+
   if (err?.request) {
     return "Could not reach the backend. Check Railway backend CORS, public URL, and SMTP variables.";
   }
@@ -488,8 +492,7 @@ export function AuthScreen({ onAuthenticated, isLoggedIn }: AuthScreenProps) {
                   <div ref={googleButtonRef} />
                   {hasGoogleClientId ? (
                     <p className="field-hint google-hint">
-                      If Google shows <strong>origin_mismatch</strong>, add <strong>{currentOrigin}</strong> in
-                      Google Cloud Console under Authorized JavaScript origins.
+                      Continue with your verified Google account to speed up signup.
                     </p>
                   ) : (
                     <p className="field-hint google-hint">
@@ -615,8 +618,7 @@ export function AuthScreen({ onAuthenticated, isLoggedIn }: AuthScreenProps) {
                   <div ref={googleButtonRef} />
                   {hasGoogleClientId ? (
                     <p className="field-hint google-hint">
-                      If Google shows <strong>origin_mismatch</strong>, add <strong>{currentOrigin}</strong> in
-                      Google Cloud Console under Authorized JavaScript origins.
+                      Continue with your verified Google account for faster login.
                     </p>
                   ) : (
                     <p className="field-hint google-hint">
