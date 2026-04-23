@@ -379,23 +379,40 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
         }
         @keyframes rcp-blink { 0%,100%{opacity:1} 50%{opacity:0.35} }
 
-        /* ── Two-block video layout ── */
+        /* ── FIXED: Two-block vertical video layout ── */
         .rcp-video-stack {
           flex: 1;
           display: flex;
           flex-direction: column;
           min-height: 0;
+          width: 100%;
         }
         .rcp-block {
           position: relative;
           overflow: hidden;
-          flex: 1;
+          width: 100%;
+          flex-shrink: 0;
         }
-        .rcp-block-remote { flex: 1.15; }
-        .rcp-block-local  { flex: 0.85; border-top: 2px solid #1a1a1f; }
+        .rcp-block-remote {
+          flex: 1.15;
+          min-height: 0;
+        }
+        .rcp-block-local {
+          flex: 0.85;
+          min-height: 0;
+          border-top: 2px solid #1a1a1f;
+        }
+
+        /* FIXED: VideoRoom and video fill their block completely */
+        .rcp-block > div,
+        .rcp-block > video {
+          width: 100% !important;
+          height: 100% !important;
+        }
 
         .rcp-block video {
-          width: 100%; height: 100%;
+          width: 100%;
+          height: 100%;
           object-fit: cover;
           display: block;
         }
@@ -783,6 +800,7 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
           font-family: inherit;
           margin-bottom: 14px;
           line-height: 1.5;
+          box-sizing: border-box;
         }
         .rcp-sheet-textarea::placeholder { color: rgba(255,255,255,0.2); }
         .rcp-sheet-textarea:focus { border-color: rgba(167,139,250,0.35); }
@@ -812,15 +830,6 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
           color: rgba(255,255,255,0.5);
           cursor: pointer;
         }
-
-        /* connecting shimmer */
-        .rcp-connecting-overlay {
-          position: absolute; inset: 0;
-          background: linear-gradient(165deg, #141428 0%, #0f1f35 100%);
-          display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
-        }
-        .rcp-connecting-text { font-size: 14px; color: rgba(255,255,255,0.5); }
-        .rcp-connecting-sub  { font-size: 12px; color: rgba(255,255,255,0.25); }
       `}</style>
 
       <div className="rcp-root">
@@ -847,13 +856,21 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
           <div className="rcp-toast">{connectionIssue}</div>
         ) : null}
 
-        {/* ── Two-block video stack ── */}
+        {/* ── Two-block vertical video stack ── */}
         <div className="rcp-video-stack">
 
           {/* Remote (top, larger) */}
           <div className="rcp-block rcp-block-remote">
             {zegoRenderMatch ? (
-              <div style={{ position: "absolute", inset: 0, opacity: zegoConnecting ? 0 : 1, transition: "opacity 0.35s ease", zIndex: 5 }}>
+              <div style={{
+                position: "absolute",
+                inset: 0,
+                width: "100%",
+                height: "100%",
+                opacity: zegoConnecting ? 0 : 1,
+                transition: "opacity 0.35s ease",
+                zIndex: 5,
+              }}>
                 <VideoRoom
                   key={zegoRenderMatch.roomId}
                   appId={zegoConfig.appId}
@@ -991,7 +1008,7 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
                 </button>
 
                 <button
-                  className={`rcp-btn rcp-btn-react`}
+                  className="rcp-btn rcp-btn-react"
                   onClick={() => setShowReactionTray((p) => !p)}
                   disabled={!match}
                 >

@@ -31,21 +31,16 @@ function signalDestroyComplete() {
   }
 }
 
-// Don't touch Zego's DOM — just call destroy() and let the window error
-// suppressor in App.tsx handle the uncatchable createSpan crash.
-// We use a module-level lock so the next init waits for teardown to finish.
 function safeDestroy(instance: ZegoUIKitPrebuilt) {
   destroyInProgress = true;
 
-  // rAF x2 ensures we're past React's commit phase before destroy fires
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
       try {
         instance.destroy();
       } catch {
-        // createSpan crash — already suppressed by window error handler in App.tsx
+        // createSpan crash — suppressed
       } finally {
-        // Give Zego's async internals a moment to fully wind down
         setTimeout(signalDestroyComplete, 800);
       }
     });
@@ -79,13 +74,9 @@ export function VideoRoom({
     let zegoContainer: HTMLDivElement | null = null;
 
     const init = async () => {
-      // Wait for any previous Zego instance to fully tear down before
-      // starting a new one — prevents _expressConfig / AiDenoiseConfig errors
       await waitForDestroyComplete();
       if (cleanedUp) return;
 
-      // Create a fresh container — never reuse the old one since Zego's
-      // internal React renderer holds references to it after destroy
       const currentContainer = document.createElement("div");
       currentContainer.style.cssText = "width:100%;height:100%;";
       container.appendChild(currentContainer);
@@ -113,7 +104,6 @@ export function VideoRoom({
 
       try {
         instance = ZegoUIKitPrebuilt.create(kitToken);
-        // Attach the container to the instance so cleanup can remove it
         (instance as any)._zegoContainer = currentContainer;
       } catch (err) {
         console.error("Failed to create Zego instance:", err);
@@ -152,11 +142,9 @@ export function VideoRoom({
 
         allElements.forEach((element) => {
           const text = element.textContent?.trim() ?? "";
-          
-          // Aggressively hide the autoplay failure popup
+
           if (text.includes("Media play failed") || text === "Resume") {
             let parent = element.parentElement;
-            // Go up to find the absolute positioned overlay container and hide it
             for (let i = 0; i < 5; i++) {
               if (parent) {
                 parent.style.setProperty("display", "none", "important");
@@ -180,8 +168,10 @@ export function VideoRoom({
             rect.top < containerRect.top + containerRect.height * 0.7 &&
             rect.bottom > containerRect.top + containerRect.height * 0.3;
 
-          // Hide anything that looks like a call control/button/bottom bar
-          const isButtonOrIcon = element.tagName === "BUTTON" || element.getAttribute("role") === "button" || hasSvg;
+          const isButtonOrIcon =
+            element.tagName === "BUTTON" ||
+            element.getAttribute("role") === "button" ||
+            hasSvg;
           const isBottomControl = isButtonOrIcon && nearBottom;
           const isTopRightUtility =
             isButtonOrIcon &&
@@ -194,9 +184,10 @@ export function VideoRoom({
             element.style.setProperty("display", "none", "important");
             element.style.setProperty("visibility", "hidden", "important");
             element.style.setProperty("opacity", "0", "important");
-            
-            // If it's wrapped in a small container (like the red button wrapper), hide that too
-            if (element.parentElement && element.parentElement.getBoundingClientRect().height < 100) {
+            if (
+              element.parentElement &&
+              element.parentElement.getBoundingClientRect().height < 100
+            ) {
               element.parentElement.style.setProperty("display", "none", "important");
             }
           }
@@ -278,5 +269,19 @@ export function VideoRoom({
     };
   }, [appId, roomId, serverSecret, userId, userName]);
 
-  return <div className="video-room" ref={containerRef} />;
+  // ✅ FIX: position:absolute + inset:0 ensures this div fully fills the
+  // relatively-positioned .rcp-block parent. Without explicit dimensions,
+  // Zego's child div (width:100%;height:100%) resolves to 0, collapsing
+  // the flex block and causing the side-by-side layout bug.
+  return (
+    <div
+      ref={containerRef}
+      style={{
+        position: "absolute",
+        inset: 0,
+        width: "100%",
+        height: "100%",
+      }}
+    />
+  );
 }
