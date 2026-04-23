@@ -1,4 +1,5 @@
 import { io, Socket } from "socket.io-client";
+import { SOCKET_BASE_URL } from "./api";
 
 let socket: Socket | null = null;
 
@@ -7,7 +8,7 @@ export function connectSocket(token: string) {
     return socket;
   }
 
-  socket = io("http://localhost:4000", {
+  socket = io(SOCKET_BASE_URL, {
     autoConnect: true,
     auth: {
       token
