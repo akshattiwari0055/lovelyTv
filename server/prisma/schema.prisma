@@ -1,0 +1,99 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id             String          @id @default(cuid())
+  fullName       String
+  email          String          @unique
+  passwordHash   String?
+  registrationNo String          @unique
+  bio            String?
+  interests      String?
+  course         String?
+  year           String?
+  emailVerified  Boolean         @default(false)
+  authProvider   String          @default("email")
+  googleId       String?         @unique
+  createdAt      DateTime        @default(now())
+  sentRequests   FriendRequest[] @relation("sentRequests")
+  receivedReqs   FriendRequest[] @relation("receivedRequests")
+  friendshipsA   Friendship[]    @relation("friendA")
+  friendshipsB   Friendship[]    @relation("friendB")
+  messagesSent   Message[]       @relation("sender")
+  blocksInitiated UserBlock[]    @relation("blocker")
+  blocksReceived  UserBlock[]    @relation("blocked")
+  reportsFiled    UserReport[]   @relation("reporter")
+  reportsReceived UserReport[]   @relation("reported")
+}
+
+model EmailOtp {
+  id        String   @id @default(cuid())
+  email     String
+  purpose   String
+  codeHash  String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
+model FriendRequest {
+  id         String   @id @default(cuid())
+  senderId   String
+  receiverId String
+  status     String   @default("pending")
+  createdAt  DateTime @default(now())
+  sender     User     @relation("sentRequests", fields: [senderId], references: [id])
+  receiver   User     @relation("receivedRequests", fields: [receiverId], references: [id])
+
+  @@unique([senderId, receiverId])
+}
+
+model Friendship {
+  id        String   @id @default(cuid())
+  userAId   String
+  userBId   String
+  createdAt DateTime @default(now())
+  userA     User     @relation("friendA", fields: [userAId], references: [id])
+  userB     User     @relation("friendB", fields: [userBId], references: [id])
+
+  @@unique([userAId, userBId])
+}
+
+model Message {
+  id         String   @id @default(cuid())
+  senderId   String
+  receiverId String
+  content    String?
+  imageUrl   String?
+  isRead     Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  sender     User     @relation("sender", fields: [senderId], references: [id])
+}
+
+model UserBlock {
+  id        String   @id @default(cuid())
+  blockerId String
+  blockedId String
+  reason    String?
+  createdAt DateTime @default(now())
+  blocker   User     @relation("blocker", fields: [blockerId], references: [id])
+  blocked   User     @relation("blocked", fields: [blockedId], references: [id])
+
+  @@unique([blockerId, blockedId])
+}
+
+model UserReport {
+  id         String   @id @default(cuid())
+  reporterId String
+  reportedId String
+  reason     String
+  details    String?
+  createdAt  DateTime @default(now())
+  reporter   User     @relation("reporter", fields: [reporterId], references: [id])
+  reported   User     @relation("reported", fields: [reportedId], references: [id])
+}

@@ -1,0 +1,23 @@
+{
+  "name": "lputv",
+  "private": true,
+  "version": "1.0.0",
+  "workspaces": [
+    "client",
+    "server"
+  ],
+  "scripts": {
+    "install:all": "npm install --workspaces",
+    "dev": "concurrently \"npm run dev --workspace server\" \"npm run dev --workspace client\"",
+    "build": "npm run build --workspace server && npm run build --workspace client",
+    "prisma:generate": "npm run prisma:generate --workspace server",
+    "prisma:migrate": "npm run prisma:migrate --workspace server"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.1"
+  },
+  "dependencies": {
+    "lucide-react": "^1.8.0",
+    "react-icons": "^5.6.0"
+  }
+}
