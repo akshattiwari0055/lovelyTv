@@ -5,7 +5,8 @@ export const SOCKET_BASE_URL =
   import.meta.env.VITE_SOCKET_URL || API_BASE_URL.replace(/\/api\/?$/, "");
 
 export const api = axios.create({
-  baseURL: API_BASE_URL
+  baseURL: API_BASE_URL,
+  timeout: 15000
 });
 
 export function setAuthToken(token: string | null) {

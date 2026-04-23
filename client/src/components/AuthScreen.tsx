@@ -33,6 +33,19 @@ const initialRegisterForm = {
   interests: ""
 };
 
+function getRequestErrorMessage(err: any, fallback: string) {
+  const responseMessage = err?.response?.data?.message;
+  if (typeof responseMessage === "string" && responseMessage.trim()) {
+    return responseMessage;
+  }
+
+  if (err?.request) {
+    return "Could not reach the backend. Check Railway backend CORS, public URL, and SMTP variables.";
+  }
+
+  return fallback;
+}
+
 export function AuthScreen({ onAuthenticated, isLoggedIn }: AuthScreenProps) {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -51,6 +64,7 @@ export function AuthScreen({ onAuthenticated, isLoggedIn }: AuthScreenProps) {
   const googleButtonRef = useRef<HTMLDivElement | null>(null);
   const authLayoutRef = useRef<HTMLDivElement>(null);
   const hasGoogleClientId = Boolean(import.meta.env.VITE_GOOGLE_CLIENT_ID);
+  const currentOrigin = typeof window !== "undefined" ? window.location.origin : "http://localhost:5173";
   const hasRegisterEmail = registerForm.email.trim().length > 0;
   const hasOtpLoginEmail = otpLoginForm.email.trim().length > 0;
 
@@ -196,7 +210,7 @@ export function AuthScreen({ onAuthenticated, isLoggedIn }: AuthScreenProps) {
       onAuthenticated(response.data);
       navigate("/app", { replace: true });
     } catch (err: any) {
-      setError(err.response?.data?.message ?? "Google sign-in failed");
+      setError(getRequestErrorMessage(err, "Google sign-in failed"));
     } finally {
       setLoading(false);
     }
@@ -211,7 +225,7 @@ export function AuthScreen({ onAuthenticated, isLoggedIn }: AuthScreenProps) {
       const response = await api.post("/auth/request-otp", { email, purpose });
       setInfo(response.data.message ?? "OTP sent.");
     } catch (err: any) {
-      setError(err.response?.data?.message ?? "Could not send OTP.");
+      setError(getRequestErrorMessage(err, "Could not send OTP."));
     } finally {
       setLoading(false);
     }
@@ -228,7 +242,7 @@ export function AuthScreen({ onAuthenticated, isLoggedIn }: AuthScreenProps) {
       onAuthenticated(response.data);
       navigate("/app", { replace: true });
     } catch (err: any) {
-      setError(err.response?.data?.message ?? "Could not create account");
+      setError(getRequestErrorMessage(err, "Could not create account"));
     } finally {
       setLoading(false);
     }
@@ -245,7 +259,7 @@ export function AuthScreen({ onAuthenticated, isLoggedIn }: AuthScreenProps) {
       onAuthenticated(response.data);
       navigate("/app", { replace: true });
     } catch (err: any) {
-      setError(err.response?.data?.message ?? "Could not log in");
+      setError(getRequestErrorMessage(err, "Could not log in"));
     } finally {
       setLoading(false);
     }
@@ -262,7 +276,7 @@ export function AuthScreen({ onAuthenticated, isLoggedIn }: AuthScreenProps) {
       onAuthenticated(response.data);
       navigate("/app", { replace: true });
     } catch (err: any) {
-      setError(err.response?.data?.message ?? "Could not log in with OTP");
+      setError(getRequestErrorMessage(err, "Could not log in with OTP"));
     } finally {
       setLoading(false);
     }
@@ -474,7 +488,7 @@ export function AuthScreen({ onAuthenticated, isLoggedIn }: AuthScreenProps) {
                   <div ref={googleButtonRef} />
                   {hasGoogleClientId ? (
                     <p className="field-hint google-hint">
-                      If Google shows <strong>origin_mismatch</strong>, add <strong>http://localhost:5173</strong> in
+                      If Google shows <strong>origin_mismatch</strong>, add <strong>{currentOrigin}</strong> in
                       Google Cloud Console under Authorized JavaScript origins.
                     </p>
                   ) : (
@@ -601,7 +615,7 @@ export function AuthScreen({ onAuthenticated, isLoggedIn }: AuthScreenProps) {
                   <div ref={googleButtonRef} />
                   {hasGoogleClientId ? (
                     <p className="field-hint google-hint">
-                      If Google shows <strong>origin_mismatch</strong>, add <strong>http://localhost:5173</strong> in
+                      If Google shows <strong>origin_mismatch</strong>, add <strong>{currentOrigin}</strong> in
                       Google Cloud Console under Authorized JavaScript origins.
                     </p>
                   ) : (
