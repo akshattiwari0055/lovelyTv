@@ -1688,26 +1688,12 @@ textarea {
   color: #8f9cb1;
 }
 
-.insta-sidebar-pill-row {
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.insta-filter-pill {
-  padding: 9px 14px;
-  border-radius: 999px;
-  color: #a7b4c7;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  font-size: 0.84rem;
+.insta-sidebar-action {
+  padding: 0;
+  background: transparent;
+  color: #9aa7bc;
+  font-size: 0.82rem;
   font-weight: 700;
-}
-
-.insta-filter-pill.active {
-  color: #07111b;
-  background: #f5f7fb;
-  border-color: rgba(255, 255, 255, 0.35);
 }
 
 .insta-thread-list {
@@ -1717,27 +1703,29 @@ textarea {
   padding-right: 4px;
   align-content: start;
   grid-auto-rows: max-content;
+  gap: 2px;
 }
 
 .insta-thread {
-  padding: 14px;
-  gap: 14px;
-  border-radius: 22px;
-  background: rgba(255, 255, 255, 0.025);
+  position: relative;
+  padding: 12px 10px;
+  gap: 12px;
+  border-radius: 18px;
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
   align-self: start;
 }
 
 .insta-thread:hover {
-  background: rgba(255, 255, 255, 0.06);
-  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  border-color: transparent;
 }
 
 .insta-thread.active {
-  background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.02)),
-    rgba(255, 255, 255, 0.04);
-  border-color: rgba(255, 255, 255, 0.18);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.06);
+  border-color: transparent;
+  box-shadow: none;
 }
 
 .insta-thread-avatar,
@@ -1766,13 +1754,16 @@ textarea {
 }
 
 .insta-thread-meta {
+  display: grid;
+  gap: 3px;
+  flex: 1;
   min-width: 0;
   text-align: left;
 }
 
 .insta-thread-head {
-  justify-content: space-between;
-  gap: 10px;
+  justify-content: flex-start;
+  gap: 8px;
 }
 
 .insta-thread-head strong {
@@ -1783,7 +1774,7 @@ textarea {
 }
 
 .insta-thread-head small {
-  font-size: 0.78rem;
+  font-size: 0.76rem;
 }
 
 .insta-unread-badge {
@@ -1799,34 +1790,46 @@ textarea {
   font-weight: 800;
 }
 
+.insta-thread-dot {
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: #4f67ff;
+  margin-left: auto;
+}
+
 .insta-chat-panel {
   padding: 0;
   overflow: hidden;
+  background: #0b1017;
 }
 
 .insta-chat-header {
   flex: 0 0 auto;
-  padding: 20px 24px 16px;
-  min-height: 92px;
+  padding: 14px 18px 12px;
+  min-height: 76px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.07);
-  background: rgba(8, 12, 20, 0.88);
+  background: #090e14;
 }
 
 .insta-chat-profile span {
   display: block;
-  margin-top: 4px;
-  font-size: 0.94rem;
+  margin-top: 2px;
+  font-size: 0.82rem;
 }
 
 .insta-chat-actions {
-  gap: 10px;
+  gap: 8px;
 }
 
 .insta-action-button {
-  width: 44px;
-  height: 44px;
+  width: 38px;
+  height: 38px;
   padding: 0;
-  border-radius: 16px;
+  border-radius: 50%;
+  background: transparent;
+  border: 0;
 }
 
 .insta-messages-box {
@@ -1834,10 +1837,8 @@ textarea {
   min-height: 0;
   max-height: none;
   overflow: auto;
-  padding: 20px 24px 14px;
-  background:
-    radial-gradient(circle at top right, rgba(255, 188, 89, 0.06), transparent 22%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.015), rgba(255, 255, 255, 0));
+  padding: 18px 18px 12px;
+  background: #0b1017;
 }
 
 .insta-message-row {
@@ -1853,17 +1854,17 @@ textarea {
   display: grid;
   gap: 10px;
   max-width: min(78%, 520px);
-  padding: 14px 16px 12px;
-  border-radius: 24px 24px 24px 10px;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.05);
-  box-shadow: 0 16px 34px rgba(0, 0, 0, 0.14);
+  padding: 10px 12px 8px;
+  border-radius: 18px 18px 18px 8px;
+  background: #1a212c;
+  border: 0;
+  box-shadow: none;
 }
 
 .insta-message-bubble.mine {
-  border-radius: 24px 24px 10px 24px;
-  background: linear-gradient(180deg, rgba(29, 72, 63, 0.92), rgba(22, 58, 51, 0.92));
-  border-color: rgba(124, 233, 214, 0.16);
+  border-radius: 18px 18px 8px 18px;
+  background: #4d63ff;
+  border-color: transparent;
 }
 
 .insta-message-image {
@@ -1920,23 +1921,23 @@ textarea {
   grid-template-columns: auto 1fr auto;
   gap: 12px;
   align-items: center;
-  margin: auto 16px 16px;
-  padding: 12px 14px;
-  border-radius: 28px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(255, 255, 255, 0.04);
+  margin: auto 12px 12px;
+  padding: 10px 12px;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: #0c1118;
 }
 
 .insta-composer-icon,
 .insta-send-button {
-  width: 44px;
-  height: 44px;
+  width: 34px;
+  height: 34px;
   display: grid;
   place-items: center;
   border-radius: 50%;
   color: #f8f4ec;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: transparent;
+  border: 0;
 }
 
 .insta-composer-input {
@@ -1946,6 +1947,7 @@ textarea {
   border: 0;
   outline: none;
   background: transparent;
+  font-size: 0.94rem;
 }
 
 .insta-composer-input::placeholder {
@@ -1959,8 +1961,8 @@ textarea {
 
 .insta-send-button.active {
   opacity: 1;
-  color: #07111b;
-  background: linear-gradient(135deg, #ffffff, #e7ecf5);
+  color: #f8f4ec;
+  background: transparent;
 }
 
 .profile-card {

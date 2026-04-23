@@ -527,10 +527,7 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
       <div className="ome-chat-sidebar insta-chat-sidebar">
         <div className="insta-sidebar-header">
           <h3>Messages</h3>
-        </div>
-        <div className="insta-sidebar-pill-row">
-          <button className="insta-filter-pill active" type="button">Primary</button>
-          <button className="insta-filter-pill" type="button">Friends</button>
+          <button type="button" className="insta-sidebar-action">Requests</button>
         </div>
         <div className="chat-friend-list insta-thread-list">
           {friends.length === 0 ? <div className="empty-card">No friends yet. Accept requests to unlock chats.</div> : null}
@@ -544,14 +541,10 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
               <span className="chat-friend-meta insta-thread-meta">
                 <span className="insta-thread-head">
                   <strong>{friend.fullName}</strong>
-                  {unreadCounts[friend.id] ? (
-                    <span className="insta-unread-badge">{formatUnreadBadge(unreadCounts[friend.id])}</span>
-                  ) : (
-                    <small>{selectedFriend?.id === friend.id ? "Open now" : "DM"}</small>
-                  )}
                 </span>
-                <small>{getFriendSubline(friend)}</small>
+                <small>{unreadCounts[friend.id] ? `${formatUnreadBadge(unreadCounts[friend.id])} new messages` : getFriendSubline(friend)}</small>
               </span>
+              {unreadCounts[friend.id] ? <span className="insta-thread-dot" /> : null}
             </button>
           ))}
         </div>
