@@ -801,6 +801,7 @@ textarea {
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.015)),
     rgba(12, 18, 31, 0.9);
+  align-self: start;
 }
 
 .auth-header {
@@ -1194,6 +1195,13 @@ textarea {
   padding: 18px 24px 8px;
 }
 
+.ome-topbar-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
 .profile-mini-avatar,
 .profile-avatar,
 .suggested-avatar {
@@ -1243,6 +1251,10 @@ textarea {
   color: #fff;
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.ome-menu-button-left {
+  display: none;
 }
 
 .ome-badge {
@@ -1387,6 +1399,11 @@ textarea {
   z-index: 40;
 }
 
+.ome-menu-drawer-left {
+  left: 24px;
+  right: auto;
+}
+
 .ome-menu-sheet {
   width: min(280px, calc(100vw - 48px));
   display: grid;
@@ -1397,6 +1414,79 @@ textarea {
   background: rgba(9, 13, 23, 0.96);
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35);
   backdrop-filter: blur(18px);
+}
+
+.ome-left-sheet {
+  width: min(340px, calc(100vw - 48px));
+  display: grid;
+  gap: 16px;
+  padding: 18px;
+  border-radius: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(9, 13, 23, 0.97);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(18px);
+}
+
+.ome-mobile-drawer-section {
+  display: grid;
+  gap: 12px;
+}
+
+.ome-mobile-drawer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ome-mobile-drawer-head strong {
+  font-family: "Space Grotesk", sans-serif;
+  letter-spacing: -0.03em;
+  color: #fff;
+}
+
+.ome-mobile-drawer-head span {
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.ome-mobile-suggestions {
+  display: grid;
+  gap: 10px;
+}
+
+.ome-mobile-suggestion-card {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.ome-mobile-suggestion-copy {
+  min-width: 0;
+}
+
+.ome-mobile-suggestion-copy strong {
+  display: block;
+  color: #fff;
+  margin-bottom: 4px;
+}
+
+.ome-mobile-suggestion-copy span {
+  display: block;
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.4;
+}
+
+.side-friends-list.mobile {
+  max-height: 280px;
+  overflow-y: auto;
 }
 
 .ome-menu-user {
@@ -3074,7 +3164,37 @@ textarea {
   }
 
   .auth-main {
-    padding-top: 18px;
+    padding: 12px 0 26px;
+  }
+
+  .auth-card-standalone {
+    padding: 18px;
+  }
+
+  .auth-header {
+    margin-bottom: 14px;
+  }
+
+  .auth-header h2 {
+    font-size: 1.45rem;
+  }
+
+  .auth-switch {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    margin-bottom: 14px;
+    padding-bottom: 6px;
+    background: linear-gradient(180deg, rgba(12, 18, 31, 0.98), rgba(12, 18, 31, 0.82));
+  }
+
+  .auth-form,
+  .login-container {
+    gap: 12px;
+  }
+
+  .form-field {
+    gap: 6px;
   }
 
   .composer {
@@ -3100,13 +3220,31 @@ textarea {
     padding-bottom: 18px;
   }
 
+  .ome-topbar {
+    padding-top: 14px;
+    gap: 10px;
+  }
+
+  .ome-menu-button-left {
+    display: grid;
+  }
+
   .ome-menu-drawer {
     top: 64px;
     right: 14px;
+  }
+
+  .ome-menu-drawer-left {
+    top: 64px;
     left: 14px;
+    right: 14px;
   }
 
   .ome-menu-sheet {
+    width: 100%;
+  }
+
+  .ome-left-sheet {
     width: 100%;
   }
 
@@ -3306,6 +3444,10 @@ textarea {
     flex: 1;
   }
 
+  .ome-topbar-title {
+    font-size: 0.98rem;
+  }
+
   .hero-section h1 {
     font-size: 2.42rem;
   }
@@ -3334,6 +3476,39 @@ textarea {
 
   .auth-header h2 {
     font-size: 1.6rem;
+  }
+
+  .auth-card-standalone {
+    padding: 16px;
+  }
+
+  .auth-header .eyebrow {
+    margin-bottom: 8px;
+  }
+
+  .auth-lead {
+    font-size: 0.92rem;
+    line-height: 1.5;
+  }
+
+  .auth-switch button {
+    min-height: 48px;
+    padding: 12px 14px;
+  }
+
+  .auth-form input {
+    padding-top: 13px;
+    padding-bottom: 13px;
+  }
+
+  .ome-mobile-suggestion-card {
+    grid-template-columns: 1fr;
+    justify-items: start;
+  }
+
+  .ome-mobile-suggestion-card .compact-button {
+    width: 100%;
+    justify-content: center;
   }
 
   .primary-button.large,

@@ -63,6 +63,7 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
   const [status, setStatus] = useState("Ready to explore the campus network.");
   const [activeTab, setActiveTab] = useState<AppTab>("home");
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isLeftMenuOpen, setIsLeftMenuOpen] = useState(false);
   
   // New Feature States
   const [courseFilter, setCourseFilter] = useState("");
@@ -99,6 +100,7 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
   function handleNavigate(tab: AppTab) {
     setActiveTab(tab);
     setIsMenuOpen(false);
+    setIsLeftMenuOpen(false);
   }
 
   useEffect(() => {
@@ -472,6 +474,79 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
     </>
   );
 
+  const renderLeftDrawerContent = () => (
+    <div className="ome-left-sheet">
+      <div className="ome-menu-user">
+        <div className="profile-mini-avatar">{user.fullName.slice(0, 1).toUpperCase()}</div>
+        <div>
+          <strong>{user.fullName}</strong>
+          <p>{user.email}</p>
+        </div>
+      </div>
+
+      <section className="ome-mobile-drawer-section">
+        <div className="ome-mobile-drawer-head">
+          <strong>Suggested friends</strong>
+          <button
+            className="ome-link-button"
+            onClick={() => {
+              setActiveTab("discover");
+              setIsLeftMenuOpen(false);
+            }}
+          >
+            View all
+          </button>
+        </div>
+        <div className="ome-mobile-suggestions">
+          {suggestedStudents.length === 0 ? (
+            <p className="side-empty-text">No suggestions yet.</p>
+          ) : null}
+          {suggestedStudents.map((student) => (
+            <article className="ome-mobile-suggestion-card" key={student.id}>
+              <div className="suggested-avatar small">{student.fullName.slice(0, 1).toUpperCase()}</div>
+              <div className="ome-mobile-suggestion-copy">
+                <strong>{student.fullName}</strong>
+                <span>{student.interests || "Exploring campus life"}</span>
+              </div>
+              <button
+                className="ghost-button compact-button"
+                onClick={() => void sendFriendRequest(student.id)}
+              >
+                <UserPlus size={16} />
+                Connect
+              </button>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section className="ome-mobile-drawer-section">
+        <div className="ome-mobile-drawer-head">
+          <strong>Friends</strong>
+          <span>{friends.length}</span>
+        </div>
+        <div className="side-friends-list mobile">
+          {friends.length === 0 ? <p className="side-empty-text">No friends yet.</p> : null}
+          {friends.map((friend) => (
+            <button
+              key={friend.id}
+              className={selectedFriend?.id === friend.id && activeTab === "chat" ? "side-friend-chip active" : "side-friend-chip"}
+              onClick={() => {
+                setSelectedFriend(friend);
+                setActiveTab("chat");
+                setIsLeftMenuOpen(false);
+              }}
+            >
+              <div className="profile-mini-avatar small">{friend.fullName.slice(0, 1).toUpperCase()}</div>
+              <span className="friend-name">{friend.fullName}</span>
+              {unreadCounts[friend.id] ? <span className="side-unread-badge">{formatUnreadBadge(unreadCounts[friend.id])}</span> : null}
+            </button>
+          ))}
+        </div>
+      </section>
+    </div>
+  );
+
   const renderDiscover = () => (
     <section className="ome-section dashboard-reveal">
       <div className="ome-section-head">
@@ -782,11 +857,28 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
 
         <div className="ome-content-shell">
           <header className="ome-topbar dashboard-reveal">
-            <div className="ome-topbar-title">
-              {activeTab === "home" ? "Home" : activeTab === "discover" ? "Discover" : activeTab === "chat" ? "Messages" : "Profile"}
+            <div className="ome-topbar-left">
+              <button
+                className="ome-menu-button ome-menu-button-left"
+                onClick={() => {
+                  setIsMenuOpen(false);
+                  setIsLeftMenuOpen((current) => !current);
+                }}
+              >
+                {isLeftMenuOpen ? <X size={20} /> : <Menu size={20} />}
+              </button>
+              <div className="ome-topbar-title">
+                {activeTab === "home" ? "Home" : activeTab === "discover" ? "Discover" : activeTab === "chat" ? "Messages" : "Profile"}
+              </div>
             </div>
 
-            <button className="ome-menu-button" onClick={() => setIsMenuOpen((current) => !current)}>
+            <button
+              className="ome-menu-button"
+              onClick={() => {
+                setIsLeftMenuOpen(false);
+                setIsMenuOpen((current) => !current);
+              }}
+            >
               {isMenuOpen ? <X size={20} /> : <Menu size={20} />}
               {pendingCount > 0 ? <span className="ome-badge">{pendingCount}</span> : null}
             </button>
@@ -832,6 +924,12 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
 
                 <button className="ghost-button ome-menu-logout" onClick={onLogout}>Logout</button>
               </div>
+            </div>
+          ) : null}
+
+          {isLeftMenuOpen ? (
+            <div className="ome-menu-drawer ome-menu-drawer-left">
+              {renderLeftDrawerContent()}
             </div>
           ) : null}
         </div>

@@ -110,10 +110,14 @@ export function App() {
       <Route
         path="/"
         element={
-          <LandingPage
-            isLoggedIn={!!session}
-            onLogout={handleLogout}
-          />
+          session ? (
+            <Navigate to="/app" replace />
+          ) : (
+            <LandingPage
+              isLoggedIn={!!session}
+              onLogout={handleLogout}
+            />
+          )
         }
       />
       <Route
