@@ -10,7 +10,7 @@
     "install:all": "npm install --workspaces",
     "dev": "concurrently \"npm run dev --workspace server\" \"npm run dev --workspace client\"",
     "build": "npm run build --workspace server && npm run build --workspace client",
-    "postinstall": "npm run prisma:generate --workspace server",
+    "postinstall": "node scripts/postinstall.js",
     "prisma:generate": "npm run prisma:generate --workspace server",
     "prisma:migrate": "npm run prisma:migrate --workspace server"
   },
