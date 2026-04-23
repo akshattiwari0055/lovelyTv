@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Flag, PhoneOff, Play, ShieldBan, SkipForward, UserPlus, X } from "lucide-react";
+import { Flag, MessageCircle, PhoneOff, Play, Send, ShieldBan, SkipForward, SmilePlus, UserPlus, X } from "lucide-react";
 import { api } from "../lib/api";
 import { connectSocket, disconnectSocket, getSocket } from "../lib/socket";
 import { MatchResult, RelationshipStatus, User } from "../types";
@@ -10,6 +10,22 @@ type RandomChatPageProps = {
   token: string;
   user: User;
 };
+
+type LiveChatMessage = {
+  id: string;
+  message: string;
+  senderId: string;
+  senderName: string;
+  createdAt: string;
+};
+
+type FloatingReaction = {
+  id: string;
+  emoji: string;
+  own?: boolean;
+};
+
+const QUICK_REACTIONS = ["🔥", "👏", "😂", "❤️"];
 
 export function RandomChatPage({ token, user }: RandomChatPageProps) {
   const navigate = useNavigate();
@@ -28,15 +44,51 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
   const [reportDetails, setReportDetails] = useState("");
   const [blockReason, setBlockReason] = useState("");
   const [actionBusy, setActionBusy] = useState<"friend" | "report" | "block" | "accept" | null>(null);
+  const [showCallChrome, setShowCallChrome] = useState(true);
+  const [showLiveChat, setShowLiveChat] = useState(false);
+  const [liveChatInput, setLiveChatInput] = useState("");
+  const [liveMessages, setLiveMessages] = useState<LiveChatMessage[]>([]);
+  const [floatingReactions, setFloatingReactions] = useState<FloatingReaction[]>([]);
+  const [callStartedAt, setCallStartedAt] = useState<number | null>(null);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
 
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const hasStartedRef = useRef(hasStarted);
   const previewRetryTimerRef = useRef<number | null>(null);
   const upcomingPartnerName = match?.partner.fullName?.split(" ")[0] ?? "Someone";
+  const liveChatBodyRef = useRef<HTMLDivElement | null>(null);
+  const liveTimer = useMemo(() => {
+    const minutes = String(Math.floor(elapsedSeconds / 60)).padStart(2, "0");
+    const seconds = String(elapsedSeconds % 60).padStart(2, "0");
+    return `${minutes}:${seconds}`;
+  }, [elapsedSeconds]);
 
   useEffect(() => {
     hasStartedRef.current = hasStarted;
   }, [hasStarted]);
+
+  useEffect(() => {
+    if (!callStartedAt || zegoConnecting || !match) {
+      setElapsedSeconds(0);
+      return;
+    }
+
+    const tick = () => {
+      setElapsedSeconds(Math.max(0, Math.floor((Date.now() - callStartedAt) / 1000)));
+    };
+
+    tick();
+    const intervalId = window.setInterval(tick, 1000);
+    return () => window.clearInterval(intervalId);
+  }, [callStartedAt, match, zegoConnecting]);
+
+  useEffect(() => {
+    if (!showLiveChat) return;
+    liveChatBodyRef.current?.scrollTo({
+      top: liveChatBodyRef.current.scrollHeight,
+      behavior: "smooth"
+    });
+  }, [liveMessages, showLiveChat]);
 
   useEffect(() => {
     // Release the camera when matched so Zego can acquire it
@@ -154,6 +206,11 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
       setZegoConnecting(true);
       setRoomRevealPending(true);
       setMatch(payload);
+      setShowCallChrome(true);
+      setShowLiveChat(false);
+      setLiveMessages([]);
+      setFloatingReactions([]);
+      setCallStartedAt(null);
       setIsMatching(false);
       setHasStarted(true);
     });
@@ -162,6 +219,8 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
       setMatch(null);
       setZegoConnecting(false);
       setRoomRevealPending(false);
+      setShowLiveChat(false);
+      setCallStartedAt(null);
       
       // Auto-search for next partner if the session hasn't been explicitly stopped
       if (hasStartedRef.current) {
@@ -172,10 +231,24 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
       }
     });
 
+    socket.on("match:reaction", ({ emoji, senderId }: { emoji: string; senderId: string }) => {
+      const reactionId = `${senderId}-${Date.now()}`;
+      setFloatingReactions((current) => [...current, { id: reactionId, emoji }]);
+      window.setTimeout(() => {
+        setFloatingReactions((current) => current.filter((entry) => entry.id !== reactionId));
+      }, 2200);
+    });
+
+    socket.on("match:chat", (payload: LiveChatMessage) => {
+      setLiveMessages((current) => [...current.slice(-19), payload]);
+    });
+
     return () => {
       socket.off("match:waiting");
       socket.off("match:found");
       socket.off("match:partner-left");
+      socket.off("match:reaction");
+      socket.off("match:chat");
       socket.emit("match:leave-room");
       socket.emit("match:leave-queue");
       disconnectSocket();
@@ -206,6 +279,9 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
       setShowBlockSheet(false);
       setReportDetails("");
       setBlockReason("");
+      setLiveMessages([]);
+      setFloatingReactions([]);
+      setCallStartedAt(null);
       return;
     }
 
@@ -314,6 +390,11 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
     setMatch(null);
     setZegoConnecting(false);
     setRoomRevealPending(false);
+    setShowCallChrome(true);
+    setShowLiveChat(false);
+    setLiveMessages([]);
+    setFloatingReactions([]);
+    setCallStartedAt(null);
     setIsMatching(true);
     setHasStarted(true);
     getSocket()?.emit("match:join-queue");
@@ -325,6 +406,10 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
     setMatch(null);
     setZegoConnecting(false);
     setRoomRevealPending(false);
+    setShowLiveChat(false);
+    setLiveMessages([]);
+    setFloatingReactions([]);
+    setCallStartedAt(null);
     setIsMatching(false);
     setHasStarted(false);
   }
@@ -334,11 +419,33 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
     setMatch(null);
     setZegoConnecting(false);
     setRoomRevealPending(false);
+    setShowLiveChat(false);
+    setLiveMessages([]);
+    setFloatingReactions([]);
+    setCallStartedAt(null);
     setIsMatching(true);
     setHasStarted(true);
     window.setTimeout(() => {
       getSocket()?.emit("match:join-queue");
     }, 120);
+  }
+
+  function triggerReaction(emoji: string) {
+    const reactionId = `${user.id}-${Date.now()}`;
+    setFloatingReactions((current) => [...current, { id: reactionId, emoji, own: true }]);
+    getSocket()?.emit("match:reaction", { emoji });
+    window.setTimeout(() => {
+      setFloatingReactions((current) => current.filter((entry) => entry.id !== reactionId));
+    }, 2200);
+  }
+
+  function sendLiveChatMessage(event: FormEvent) {
+    event.preventDefault();
+    const trimmedMessage = liveChatInput.trim();
+    if (!trimmedMessage) return;
+
+    getSocket()?.emit("match:chat", { message: trimmedMessage });
+    setLiveChatInput("");
   }
 
   return (
@@ -376,8 +483,99 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
         </div>
       </header>
 
-      <div className="video-blocks-container" style={{ position: "relative" }}>
+      <div
+        className={`video-blocks-container ${match ? "active-call" : ""} ${showCallChrome ? "chrome-visible" : "chrome-hidden"}`}
+        style={{ position: "relative" }}
+        onClick={() => {
+          if (match && !zegoConnecting) {
+            setShowCallChrome((current) => !current);
+          }
+        }}
+      >
         {match && actionMessage ? <div className="call-inline-status">{actionMessage}</div> : null}
+        {match ? (
+          <div className="call-stage-topbar" onClick={(event) => event.stopPropagation()}>
+            <div className="call-stage-pill live">
+              <span className="live-dot"></span>
+              Live
+            </div>
+            <div className="call-stage-pill timer">{liveTimer}</div>
+            <div className="call-stage-pill partner">{match.partner.fullName}</div>
+          </div>
+        ) : null}
+
+        {match ? (
+          <div className="call-quick-rail" onClick={(event) => event.stopPropagation()}>
+            <button
+              className={`call-quick-btn ${showLiveChat ? "active" : ""}`}
+              onClick={() => setShowLiveChat((current) => !current)}
+              type="button"
+            >
+              <MessageCircle size={18} />
+              <span>Chat</span>
+            </button>
+            <button className="call-quick-btn reaction" onClick={() => triggerReaction("🔥")} type="button">
+              <SmilePlus size={18} />
+              <span>React</span>
+            </button>
+          </div>
+        ) : null}
+
+        {match ? (
+          <div className="call-reaction-dock" onClick={(event) => event.stopPropagation()}>
+            {QUICK_REACTIONS.map((emoji) => (
+              <button key={emoji} className="reaction-bubble-btn" onClick={() => triggerReaction(emoji)} type="button">
+                {emoji}
+              </button>
+            ))}
+          </div>
+        ) : null}
+
+        {floatingReactions.length > 0 ? (
+          <div className="floating-reactions-layer">
+            {floatingReactions.map((reaction) => (
+              <span key={reaction.id} className={`floating-reaction ${reaction.own ? "own" : ""}`}>
+                {reaction.emoji}
+              </span>
+            ))}
+          </div>
+        ) : null}
+
+        {match && showLiveChat ? (
+          <aside className="call-live-chat" onClick={(event) => event.stopPropagation()}>
+            <div className="call-live-chat-head">
+              <div>
+                <strong>Live chat</strong>
+                <span>Quick notes during the call</span>
+              </div>
+              <button className="call-live-chat-close" type="button" onClick={() => setShowLiveChat(false)}>
+                <X size={16} />
+              </button>
+            </div>
+            <div className="call-live-chat-body" ref={liveChatBodyRef}>
+              {liveMessages.length === 0 ? (
+                <div className="call-live-chat-empty">Send a quick hello without covering the video.</div>
+              ) : null}
+              {liveMessages.map((entry) => (
+                <div key={entry.id} className={`call-chat-bubble ${entry.senderId === user.id ? "mine" : ""}`}>
+                  <span className="call-chat-author">{entry.senderId === user.id ? "You" : entry.senderName.split(" ")[0]}</span>
+                  <p>{entry.message}</p>
+                </div>
+              ))}
+            </div>
+            <form className="call-live-chat-form" onSubmit={sendLiveChatMessage}>
+              <input
+                value={liveChatInput}
+                onChange={(event) => setLiveChatInput(event.target.value)}
+                placeholder="Type a quick message"
+              />
+              <button type="submit" disabled={!liveChatInput.trim()}>
+                <Send size={16} />
+              </button>
+            </form>
+          </aside>
+        ) : null}
+
         {zegoRenderMatch && (
           <div className="video-room-wrapper" style={{ opacity: zegoConnecting ? 0 : 1, transition: "opacity 0.3s ease" }}>
             <VideoRoom
@@ -391,6 +589,7 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
                 window.setTimeout(() => {
                   setZegoConnecting(false);
                   setRoomRevealPending(false);
+                  setCallStartedAt(Date.now());
                 }, 1100);
               }}
             />

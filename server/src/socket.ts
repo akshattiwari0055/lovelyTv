@@ -261,6 +261,50 @@ export function attachSocketHandlers(io: Server) {
       }
     });
 
+    socket.on("match:reaction", ({ emoji }: { emoji: string }) => {
+      const partnerId = activeMatches.get(currentUser.id);
+      if (!partnerId || !emoji) {
+        return;
+      }
+
+      const partnerSocketId = onlineUsers.get(partnerId);
+      if (!partnerSocketId) {
+        return;
+      }
+
+      io.to(partnerSocketId).emit("match:reaction", {
+        emoji,
+        senderId: currentUser.id,
+        senderName: currentUser.fullName,
+        createdAt: new Date().toISOString()
+      });
+    });
+
+    socket.on("match:chat", ({ message }: { message: string }) => {
+      const partnerId = activeMatches.get(currentUser.id);
+      const trimmedMessage = message?.trim();
+
+      if (!partnerId || !trimmedMessage) {
+        return;
+      }
+
+      const partnerSocketId = onlineUsers.get(partnerId);
+      if (!partnerSocketId) {
+        return;
+      }
+
+      const payload = {
+        id: `${currentUser.id}-${Date.now()}`,
+        message: trimmedMessage,
+        senderId: currentUser.id,
+        senderName: currentUser.fullName,
+        createdAt: new Date().toISOString()
+      };
+
+      socket.emit("match:chat", payload);
+      io.to(partnerSocketId).emit("match:chat", payload);
+    });
+
     socket.on("disconnect", () => {
       const partnerId = endActiveMatch(currentUser.id);
       if (partnerId) {

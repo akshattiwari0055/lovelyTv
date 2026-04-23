@@ -172,6 +172,8 @@ export function VideoRoom({
           const rect = element.getBoundingClientRect();
           const hasSvg = element.querySelector("svg") !== null;
           const nearBottom = rect.top > containerRect.top + containerRect.height * 0.7;
+          const nearTop = rect.top < containerRect.top + 88;
+          const nearRight = rect.right > containerRect.right - 96;
           const nearCenter =
             rect.left < containerRect.left + containerRect.width * 0.7 &&
             rect.right > containerRect.left + containerRect.width * 0.3 &&
@@ -181,8 +183,14 @@ export function VideoRoom({
           // Hide anything that looks like a call control/button/bottom bar
           const isButtonOrIcon = element.tagName === "BUTTON" || element.getAttribute("role") === "button" || hasSvg;
           const isBottomControl = isButtonOrIcon && nearBottom;
+          const isTopRightUtility =
+            isButtonOrIcon &&
+            nearTop &&
+            nearRight &&
+            rect.width <= 88 &&
+            rect.height <= 88;
 
-          if (isBottomControl) {
+          if (isBottomControl || isTopRightUtility) {
             element.style.setProperty("display", "none", "important");
             element.style.setProperty("visibility", "hidden", "important");
             element.style.setProperty("opacity", "0", "important");

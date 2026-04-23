@@ -68,7 +68,6 @@ export function AuthScreen({ onAuthenticated, isLoggedIn }: AuthScreenProps) {
   const googleButtonRef = useRef<HTMLDivElement | null>(null);
   const authLayoutRef = useRef<HTMLDivElement>(null);
   const hasGoogleClientId = Boolean(import.meta.env.VITE_GOOGLE_CLIENT_ID);
-  const currentOrigin = typeof window !== "undefined" ? window.location.origin : "http://localhost:5173";
   const hasRegisterEmail = registerForm.email.trim().length > 0;
   const hasOtpLoginEmail = otpLoginForm.email.trim().length > 0;
 
