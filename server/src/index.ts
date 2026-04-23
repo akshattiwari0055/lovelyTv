@@ -89,6 +89,10 @@ app.get("/api/health", (_req, res) => {
   });
 });
 
+app.get("/health", (_req, res) => {
+  res.status(200).send("ok");
+});
+
 app.get("/api/public/stats", async (_req, res) => {
   const [registeredStudents, verifiedStudents] = await Promise.all([
     prisma.user.count(),
