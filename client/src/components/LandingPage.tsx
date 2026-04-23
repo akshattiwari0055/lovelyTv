@@ -4,6 +4,7 @@ import gsap from "gsap";
 import {
   ArrowRight,
   BadgeCheck,
+  Clock3,
   MessageSquareText,
   Radar,
   ShieldCheck,
@@ -93,6 +94,15 @@ export function LandingPage({ isLoggedIn, onLogout }: LandingPageProps) {
     [stats]
   );
 
+  const trustNotes = useMemo(
+    () => [
+      "OTP or Google sign-in",
+      "LPU email only",
+      "Campus-first random calls"
+    ],
+    []
+  );
+
   return (
     <div className="landing-shell">
       <Header isLoggedIn={isLoggedIn} onLogout={onLogout} />
@@ -107,24 +117,31 @@ export function LandingPage({ isLoggedIn, onLogout }: LandingPageProps) {
 
             <div className="hero-kicker hero-reveal">
               <span>Verified LPU community</span>
-              <span>Meaningful random matches</span>
+              <span>Low-friction sign in</span>
+              <span>Real student conversations</span>
             </div>
 
-            <h1 className="hero-reveal">Meet people from your campus without the awkward start.</h1>
+            <h1 className="hero-reveal">Meet students faster, with less scrolling and a better first hello.</h1>
 
             <p className="hero-subtitle hero-reveal">
-              LPU TV helps students discover new friends through verified profiles, live video chats,
-              and instant conversations that feel natural from the first hello.
+              Join with just your name, LPU email OTP, registration number, or Google account and jump
+              straight into verified campus conversations.
             </p>
 
             <div className="hero-btns hero-reveal">
               <button className="primary-button large" onClick={handleCtaClick}>
-                Start meeting students
+                Start random chat
                 <ArrowRight size={20} />
               </button>
-              <a className="secondary-button large hero-link-button" href="#features">
-                Explore features
+              <a className="secondary-button large hero-link-button" href={isLoggedIn ? "/app" : "/auth?mode=login"}>
+                Login with OTP
               </a>
+            </div>
+
+            <div className="hero-trust-row hero-reveal">
+              {trustNotes.map((note) => (
+                <span key={note}>{note}</span>
+              ))}
             </div>
 
             <div className="hero-stats hero-reveal">
@@ -159,11 +176,27 @@ export function LandingPage({ isLoggedIn, onLogout }: LandingPageProps) {
                     <Video size={16} />
                     Match. Chat. Connect.
                   </span>
-                  <h3>Say hi, get matched, and keep the conversation going.</h3>
+                  <h3>One smooth entry into live campus conversations.</h3>
                   <p>
-                    A warm first impression, fast profile context, and a campus-only network make the
-                    experience feel safer and more social.
+                    Sign in quickly, get matched in seconds, and keep the screen focused on the people
+                    instead of the form.
                   </p>
+                </div>
+
+                <div className="hero-floating-card hero-floating-card-top">
+                  <strong>Fast onboarding</strong>
+                  <span>
+                    <Clock3 size={15} />
+                    Name + email OTP + reg no
+                  </span>
+                </div>
+
+                <div className="hero-floating-card hero-floating-card-bottom">
+                  <strong>Feels safer</strong>
+                  <span>
+                    <ShieldCheck size={15} />
+                    LPU-only verified entries
+                  </span>
                 </div>
               </div>
             </div>
@@ -176,7 +209,7 @@ export function LandingPage({ isLoggedIn, onLogout }: LandingPageProps) {
             <h2>Built for confidence, safety, and better campus conversations</h2>
             <p className="section-copy">
               Everything here is designed to make the first interaction easier, whether you are looking
-              for friends, collaborators, or just someone new to talk to between classes.
+              for new friends, collaborators, or someone interesting to talk to between classes.
             </p>
           </div>
 

@@ -5,9 +5,8 @@ import {
   ArrowLeft,
   ArrowRight,
   CheckCircle2,
-  KeyRound,
-  Lock,
   Mail,
+  NotebookPen,
   ShieldCheck,
   Sparkles,
   UserPlus,
@@ -27,10 +26,7 @@ type AuthScreenProps = {
 const initialRegisterForm = {
   fullName: "",
   email: "",
-  password: "",
-  registrationNo: "",
-  bio: "",
-  interests: ""
+  registrationNo: ""
 };
 
 function getRequestErrorMessage(err: any, fallback: string) {
@@ -56,10 +52,8 @@ export function AuthScreen({ onAuthenticated, isLoggedIn }: AuthScreenProps) {
   const modeParam = searchParams.get("mode") as "login" | "register" | null;
   const [mode, setMode] = useState<"login" | "register">(modeParam || "register");
   const [registerForm, setRegisterForm] = useState(initialRegisterForm);
-  const [loginForm, setLoginForm] = useState({ email: "", password: "" });
   const [otpLoginForm, setOtpLoginForm] = useState({ email: "", otp: "" });
   const [registerOtp, setRegisterOtp] = useState("");
-  const [loginMethod, setLoginMethod] = useState<"password" | "otp">("password");
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
   const [loading, setLoading] = useState(false);
@@ -145,7 +139,7 @@ export function AuthScreen({ onAuthenticated, isLoggedIn }: AuthScreenProps) {
     }, authLayoutRef);
 
     return () => ctx.revert();
-  }, [mode, loginMethod]);
+  }, [mode]);
 
   useEffect(() => {
     const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
@@ -187,13 +181,13 @@ export function AuthScreen({ onAuthenticated, isLoggedIn }: AuthScreenProps) {
     return () => {
       mounted = false;
     };
-  }, [mode, registerForm.registrationNo, registerForm.bio, registerForm.interests]);
+  }, [mode, registerForm.registrationNo]);
 
   const authHighlights = useMemo(
     () => [
       "Verified access using official LPU identity",
-      "Quick profile setup with OTP or Google",
-      "Cleaner sign-in flow for faster onboarding"
+      "Fast OTP onboarding with just the essentials",
+      "Google sign-in for one-tap entry"
     ],
     []
   );
@@ -206,9 +200,7 @@ export function AuthScreen({ onAuthenticated, isLoggedIn }: AuthScreenProps) {
     try {
       const response = await api.post("/auth/google", {
         credential,
-        registrationNo: registerForm.registrationNo,
-        bio: registerForm.bio,
-        interests: registerForm.interests
+        registrationNo: registerForm.registrationNo
       });
       onAuthenticated(response.data);
       navigate("/app", { replace: true });
@@ -251,23 +243,6 @@ export function AuthScreen({ onAuthenticated, isLoggedIn }: AuthScreenProps) {
     }
   }
 
-  async function handleLogin(event: FormEvent) {
-    event.preventDefault();
-    setError("");
-    setInfo("");
-    setLoading(true);
-
-    try {
-      const response = await api.post("/auth/login", loginForm);
-      onAuthenticated(response.data);
-      navigate("/app", { replace: true });
-    } catch (err: any) {
-      setError(getRequestErrorMessage(err, "Could not log in"));
-    } finally {
-      setLoading(false);
-    }
-  }
-
   async function handleOtpLogin(event: FormEvent) {
     event.preventDefault();
     setError("");
@@ -299,11 +274,11 @@ export function AuthScreen({ onAuthenticated, isLoggedIn }: AuthScreenProps) {
 
             <div className="auth-aside-copy">
               <p className="eyebrow">WELCOME TO LPU TV</p>
-              <h1>{mode === "register" ? "Create your campus profile in minutes." : "Login and jump back into the community."}</h1>
+              <h1>{mode === "register" ? "Join campus conversations in one clean step." : "Login with OTP and get back inside fast."}</h1>
               <p>
                 {mode === "register"
-                  ? "Use your official LPU identity to unlock verified conversations, better matches, and a cleaner first impression."
-                  : "Pick password or OTP login and get straight into your verified student network without friction."}
+                  ? "Just add your name, official LPU email, registration number, and OTP. No long forms, no clutter."
+                  : "Use your LPU email OTP or Google account to get back into your verified student network without friction."}
               </p>
             </div>
 
@@ -322,8 +297,8 @@ export function AuthScreen({ onAuthenticated, isLoggedIn }: AuthScreenProps) {
                 <span>Students join with verified campus identity.</span>
               </div>
               <div className="auth-aside-metric">
-                <strong>One profile</strong>
-                <span>Use email, password, OTP, or Google for flexible access.</span>
+                <strong>Quick setup</strong>
+                <span>Name, email OTP, registration number, and Google auth are all you need.</span>
               </div>
             </div>
           </section>
@@ -334,8 +309,8 @@ export function AuthScreen({ onAuthenticated, isLoggedIn }: AuthScreenProps) {
               <h2>{mode === "register" ? "Create account" : "Login to continue"}</h2>
               <p className="auth-lead">
                 {mode === "register"
-                  ? "Add your details once and start meeting other LPU students."
-                  : "Choose your preferred login method and continue where you left off."}
+                  ? "A shorter signup built for fast onboarding."
+                  : "Use OTP or Google and jump straight back in."}
               </p>
             </div>
 
@@ -359,7 +334,7 @@ export function AuthScreen({ onAuthenticated, isLoggedIn }: AuthScreenProps) {
                 }}
                 type="button"
               >
-                <Lock size={18} />
+                <ShieldCheck size={18} />
                 Login
               </button>
             </div>
@@ -410,13 +385,36 @@ export function AuthScreen({ onAuthenticated, isLoggedIn }: AuthScreenProps) {
 
                 <div className="auth-grid auth-reveal">
                   <label className="form-field">
+                    <span>Registration number</span>
+                    <div className="input-group">
+                      <NotebookPen className="input-icon" size={18} />
+                      <input
+                        placeholder="8-digit registration number"
+                        value={registerForm.registrationNo}
+                        inputMode="numeric"
+                        pattern="[0-9]{8}"
+                        maxLength={8}
+                        onChange={(e) =>
+                          setRegisterForm((current) => ({
+                            ...current,
+                            registrationNo: e.target.value.replace(/\D/g, "").slice(0, 8)
+                          }))
+                        }
+                        required
+                      />
+                    </div>
+                  </label>
+
+                  <label className="form-field">
                     <span>OTP</span>
                     <div className="input-group">
                       <ShieldCheck className="input-icon" size={18} />
                       <input
                         placeholder="6-digit OTP"
                         value={registerOtp}
-                        onChange={(e) => setRegisterOtp(e.target.value)}
+                        inputMode="numeric"
+                        maxLength={6}
+                        onChange={(e) => setRegisterOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
                         required
                       />
                       {registerOtpStatus === "valid" ? <CheckCircle2 className="input-status success" size={18} /> : null}
@@ -424,61 +422,11 @@ export function AuthScreen({ onAuthenticated, isLoggedIn }: AuthScreenProps) {
                     </div>
                     <span className="otp-status-text">
                       {registerOtpStatus === "checking" ? "Checking OTP..." : null}
-                      {registerOtpStatus === "valid" ? "OTP verified and locked for signup." : null}
+                      {registerOtpStatus === "valid" ? "OTP verified and ready." : null}
                       {registerOtpStatus === "invalid" ? "OTP is invalid or expired." : null}
                     </span>
                   </label>
-
-                  <label className="form-field">
-                    <span>Password</span>
-                    <div className="input-group">
-                      <Lock className="input-icon" size={18} />
-                      <input
-                        placeholder="Create password"
-                        type="password"
-                        value={registerForm.password}
-                        onChange={(e) => setRegisterForm((current) => ({ ...current, password: e.target.value }))}
-                        required
-                      />
-                    </div>
-                  </label>
                 </div>
-
-                <div className="auth-grid auth-reveal">
-                  <label className="form-field">
-                    <span>Registration number</span>
-                    <div className="input-group">
-                      <KeyRound className="input-icon" size={18} />
-                      <input
-                        placeholder="Registration number"
-                        value={registerForm.registrationNo}
-                        onChange={(e) => setRegisterForm((current) => ({ ...current, registrationNo: e.target.value }))}
-                        required
-                      />
-                    </div>
-                  </label>
-
-                  <label className="form-field">
-                    <span>Interests</span>
-                    <div className="input-group">
-                      <Sparkles className="input-icon" size={18} />
-                      <input
-                        placeholder="Coding, music, sports"
-                        value={registerForm.interests}
-                        onChange={(e) => setRegisterForm((current) => ({ ...current, interests: e.target.value }))}
-                      />
-                    </div>
-                  </label>
-                </div>
-
-                <label className="form-field auth-reveal">
-                  <span>Short bio</span>
-                  <textarea
-                    placeholder="Tell other students a little about yourself"
-                    value={registerForm.bio}
-                    onChange={(e) => setRegisterForm((current) => ({ ...current, bio: e.target.value }))}
-                  />
-                </label>
 
                 <div className="submit-row auth-reveal">
                   <button className="primary-button submit-btn" type="submit" disabled={loading}>
@@ -491,7 +439,7 @@ export function AuthScreen({ onAuthenticated, isLoggedIn }: AuthScreenProps) {
                   <div ref={googleButtonRef} />
                   {hasGoogleClientId ? (
                     <p className="field-hint google-hint">
-                      Continue with your verified Google account to speed up signup.
+                      Use your verified Google account for one-tap signup. First-time Google signup still needs your registration number.
                     </p>
                   ) : (
                     <p className="field-hint google-hint">
@@ -502,61 +450,9 @@ export function AuthScreen({ onAuthenticated, isLoggedIn }: AuthScreenProps) {
               </form>
             ) : (
               <div className="login-container">
-                <div className="method-switch auth-reveal">
-                  <button
-                    className={loginMethod === "password" ? "active" : ""}
-                    onClick={() => setLoginMethod("password")}
-                    type="button"
-                  >
-                    Password
-                  </button>
-                  <button
-                    className={loginMethod === "otp" ? "active" : ""}
-                    onClick={() => setLoginMethod("otp")}
-                    type="button"
-                  >
-                    Email OTP
-                  </button>
-                </div>
-
-                {loginMethod === "password" ? (
-                  <form className="auth-form" onSubmit={handleLogin}>
-                    <label className="form-field auth-reveal">
-                      <span>Email</span>
-                      <div className="input-group">
-                        <Mail className="input-icon" size={18} />
-                        <input
-                          placeholder="name@lpu.in"
-                          type="email"
-                          value={loginForm.email}
-                          onChange={(e) => setLoginForm((current) => ({ ...current, email: e.target.value }))}
-                          required
-                        />
-                      </div>
-                    </label>
-
-                    <label className="form-field auth-reveal">
-                      <span>Password</span>
-                      <div className="input-group">
-                        <Lock className="input-icon" size={18} />
-                        <input
-                          placeholder="Your password"
-                          type="password"
-                          value={loginForm.password}
-                          onChange={(e) => setLoginForm((current) => ({ ...current, password: e.target.value }))}
-                          required
-                        />
-                      </div>
-                    </label>
-
-                    <button className="primary-button submit-btn auth-reveal" type="submit" disabled={loading}>
-                      {loading ? "Authenticating..." : "Enter campus"}
-                    </button>
-                  </form>
-                ) : (
                   <form className="auth-form" onSubmit={handleOtpLogin}>
                     <label className="form-field auth-reveal">
-                      <span>Email</span>
+                      <span>Official LPU email</span>
                       <div className="input-group">
                         <Mail className="input-icon" size={18} />
                         <input
@@ -586,23 +482,30 @@ export function AuthScreen({ onAuthenticated, isLoggedIn }: AuthScreenProps) {
 
                     <label className="form-field auth-reveal">
                       <span>OTP</span>
-                    <div className="input-group">
-                      <ShieldCheck className="input-icon" size={18} />
-                      <input
-                        placeholder="6-digit OTP"
-                        value={otpLoginForm.otp}
-                        onChange={(e) => setOtpLoginForm((current) => ({ ...current, otp: e.target.value }))}
-                        required
-                      />
-                      {otpLoginStatus === "valid" ? <CheckCircle2 className="input-status success" size={18} /> : null}
-                      {otpLoginStatus === "invalid" ? <XCircle className="input-status error" size={18} /> : null}
-                    </div>
-                    <span className="otp-status-text">
-                      {otpLoginStatus === "checking" ? "Checking OTP..." : null}
-                      {otpLoginStatus === "valid" ? "OTP verified. Ready to login." : null}
-                      {otpLoginStatus === "invalid" ? "OTP is invalid or expired." : null}
-                    </span>
-                  </label>
+                      <div className="input-group">
+                        <ShieldCheck className="input-icon" size={18} />
+                        <input
+                          placeholder="6-digit OTP"
+                          value={otpLoginForm.otp}
+                          inputMode="numeric"
+                          maxLength={6}
+                          onChange={(e) =>
+                            setOtpLoginForm((current) => ({
+                              ...current,
+                              otp: e.target.value.replace(/\D/g, "").slice(0, 6)
+                            }))
+                          }
+                          required
+                        />
+                        {otpLoginStatus === "valid" ? <CheckCircle2 className="input-status success" size={18} /> : null}
+                        {otpLoginStatus === "invalid" ? <XCircle className="input-status error" size={18} /> : null}
+                      </div>
+                      <span className="otp-status-text">
+                        {otpLoginStatus === "checking" ? "Checking OTP..." : null}
+                        {otpLoginStatus === "valid" ? "OTP verified. Ready to login." : null}
+                        {otpLoginStatus === "invalid" ? "OTP is invalid or expired." : null}
+                      </span>
+                    </label>
 
                     <div className="submit-row auth-reveal">
                       <button className="primary-button submit-btn" type="submit" disabled={loading}>
@@ -610,14 +513,13 @@ export function AuthScreen({ onAuthenticated, isLoggedIn }: AuthScreenProps) {
                       </button>
                     </div>
                   </form>
-                )}
 
                 <div className="auth-divider auth-reveal"><span>or continue with</span></div>
                 <div className="google-wrap auth-reveal">
                   <div ref={googleButtonRef} />
                   {hasGoogleClientId ? (
                     <p className="field-hint google-hint">
-                      Continue with your verified Google account for faster login.
+                      Continue with your verified Google account for the fastest login.
                     </p>
                   ) : (
                     <p className="field-hint google-hint">

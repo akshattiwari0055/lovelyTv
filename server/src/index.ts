@@ -192,7 +192,7 @@ app.post("/api/auth/register", async (req, res) => {
   const { fullName, email, password, registrationNo, bio, interests, otp } = req.body as Record<string, string>;
   const normalizedEmail = email?.toLowerCase().trim();
 
-  if (!fullName || !normalizedEmail || !password || !registrationNo || !otp) {
+  if (!fullName || !normalizedEmail || !registrationNo || !otp) {
     return res.status(400).json({ message: "All required fields must be filled" });
   }
 
@@ -216,7 +216,8 @@ app.post("/api/auth/register", async (req, res) => {
     return res.status(409).json({ message: "Account already exists" });
   }
 
-  const passwordHash = await bcrypt.hash(password, 10);
+  const trimmedPassword = password?.trim();
+  const passwordHash = trimmedPassword ? await bcrypt.hash(trimmedPassword, 10) : null;
   const user = await prisma.user.create({
     data: {
       fullName,
@@ -226,7 +227,7 @@ app.post("/api/auth/register", async (req, res) => {
       bio,
       interests,
       emailVerified: true,
-      authProvider: "email"
+      authProvider: trimmedPassword ? "email" : "otp"
     }
   });
 

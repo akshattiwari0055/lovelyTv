@@ -250,10 +250,10 @@ textarea {
 }
 
 .hero-section {
-  padding: 56px 0 48px;
+  padding: 34px 0 34px;
   display: grid;
-  grid-template-columns: minmax(0, 1.02fr) minmax(420px, 0.98fr);
-  gap: 48px;
+  grid-template-columns: minmax(0, 0.94fr) minmax(360px, 0.86fr);
+  gap: 36px;
   align-items: center;
 }
 
@@ -303,25 +303,45 @@ textarea {
 
 .hero-section h1 {
   margin: 0 0 20px;
-  max-width: 10ch;
+  max-width: 11ch;
   font-family: "Space Grotesk", sans-serif;
-  font-size: clamp(3.6rem, 8vw, 6.3rem);
-  line-height: 0.96;
+  font-size: clamp(2.95rem, 6.4vw, 5rem);
+  line-height: 0.94;
   letter-spacing: -0.06em;
   color: #fffaf3;
 }
 
 .hero-subtitle {
-  max-width: 620px;
-  font-size: 1.2rem;
-  margin: 0 0 32px;
+  max-width: 560px;
+  font-size: 1.04rem;
+  margin: 0 0 24px;
 }
 
 .hero-btns {
   display: flex;
   flex-wrap: wrap;
   gap: 16px;
-  margin-bottom: 34px;
+  margin-bottom: 18px;
+}
+
+.hero-trust-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 24px;
+}
+
+.hero-trust-row span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 38px;
+  padding: 0 14px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #dbe7f8;
+  font-size: 0.9rem;
+  font-weight: 600;
 }
 
 .primary-button.large,
@@ -381,8 +401,8 @@ textarea {
 }
 
 .mockup-container {
-  padding: 20px;
-  border-radius: 36px;
+  padding: 16px;
+  border-radius: 32px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02)),
@@ -392,7 +412,7 @@ textarea {
 
 .video-stage {
   position: relative;
-  min-height: 620px;
+  min-height: 520px;
   border-radius: 28px;
   overflow: hidden;
   background:
@@ -403,7 +423,7 @@ textarea {
 .hero-video {
   width: 100%;
   height: 100%;
-  min-height: 620px;
+  min-height: 520px;
   object-fit: cover;
   display: block;
   filter: saturate(1.02) contrast(1.04);
@@ -414,7 +434,7 @@ textarea {
   left: 24px;
   right: 24px;
   bottom: 24px;
-  padding: 22px;
+  padding: 20px;
   border-radius: 24px;
   background: rgba(6, 10, 18, 0.76);
   border: 1px solid rgba(255, 255, 255, 0.1);
@@ -433,14 +453,50 @@ textarea {
 
 .video-overlay-card h3 {
   margin: 0 0 10px;
-  font-size: 1.55rem;
+  font-size: 1.34rem;
   line-height: 1.15;
 }
 
 .video-overlay-card p {
   margin: 0;
   color: #d5dfef;
-  line-height: 1.6;
+  line-height: 1.55;
+}
+
+.hero-floating-card {
+  position: absolute;
+  z-index: 2;
+  min-width: 180px;
+  padding: 14px 16px;
+  border-radius: 22px;
+  background: rgba(8, 12, 22, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 16px 38px rgba(0, 0, 0, 0.24);
+  backdrop-filter: blur(16px);
+}
+
+.hero-floating-card strong {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 0.96rem;
+}
+
+.hero-floating-card span {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #d9e4f6;
+  font-size: 0.86rem;
+}
+
+.hero-floating-card-top {
+  top: 24px;
+  left: 24px;
+}
+
+.hero-floating-card-bottom {
+  right: 24px;
+  bottom: 158px;
 }
 
 .features-section {
@@ -664,19 +720,19 @@ textarea {
 
 .auth-main {
   flex: 1;
-  padding: 32px 0 56px;
+  padding: 24px 0 44px;
 }
 
 .auth-layout {
   display: grid;
-  grid-template-columns: minmax(0, 0.92fr) minmax(420px, 0.88fr);
-  gap: 26px;
+  grid-template-columns: minmax(0, 0.88fr) minmax(380px, 0.8fr);
+  gap: 22px;
   align-items: stretch;
 }
 
 .auth-aside,
 .auth-card-standalone {
-  padding: 34px;
+  padding: 28px;
 }
 
 .auth-aside {
@@ -705,8 +761,8 @@ textarea {
 }
 
 .auth-aside-copy h1 {
-  font-size: clamp(2.6rem, 4vw, 4.2rem);
-  margin-bottom: 16px;
+  font-size: clamp(2.2rem, 3vw, 3.5rem);
+  margin-bottom: 14px;
 }
 
 .auth-highlight-list {
@@ -748,11 +804,11 @@ textarea {
 }
 
 .auth-header {
-  margin-bottom: 24px;
+  margin-bottom: 18px;
 }
 
 .auth-header h2 {
-  font-size: clamp(2rem, 3vw, 2.8rem);
+  font-size: clamp(1.7rem, 2.6vw, 2.4rem);
   margin-bottom: 8px;
 }
 
@@ -786,7 +842,7 @@ textarea {
 .auth-form,
 .login-container {
   display: grid;
-  gap: 16px;
+  gap: 14px;
 }
 
 .otp-action-row {
@@ -794,7 +850,7 @@ textarea {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 14px;
-  padding: 14px 16px;
+  padding: 12px 14px;
   border-radius: 20px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   background: rgba(255, 255, 255, 0.04);
@@ -817,7 +873,7 @@ textarea {
 .auth-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
+  gap: 12px;
 }
 
 .form-field {
@@ -863,7 +919,7 @@ textarea {
   width: 100%;
   border: 1px solid rgba(255, 255, 255, 0.08);
   background: rgba(3, 8, 16, 0.42);
-  padding: 15px 48px 15px 48px;
+  padding: 14px 48px 14px 48px;
   border-radius: 18px;
   transition: var(--transition);
 }
@@ -895,10 +951,7 @@ textarea {
 }
 
 .submit-row {
-  position: sticky;
-  bottom: 0;
-  padding-top: 6px;
-  background: linear-gradient(180deg, rgba(12, 18, 31, 0), rgba(12, 18, 31, 0.96) 34%);
+  padding-top: 4px;
 }
 
 .otp-status-text {
@@ -2964,7 +3017,7 @@ textarea {
   }
 
   .hero-section {
-    padding-top: 34px;
+    padding-top: 24px;
   }
 
   .hero-btns,
@@ -3011,7 +3064,17 @@ textarea {
 
   .video-stage,
   .hero-video {
-    min-height: 420px;
+    min-height: 380px;
+  }
+
+  .hero-floating-card {
+    position: static;
+    min-width: 0;
+    margin-top: 12px;
+  }
+
+  .auth-main {
+    padding-top: 18px;
   }
 
   .composer {
@@ -3244,7 +3307,33 @@ textarea {
   }
 
   .hero-section h1 {
-    font-size: 3rem;
+    font-size: 2.42rem;
+  }
+
+  .hero-subtitle {
+    font-size: 0.97rem;
+    margin-bottom: 18px;
+  }
+
+  .hero-trust-row {
+    margin-bottom: 18px;
+  }
+
+  .hero-trust-row span {
+    font-size: 0.82rem;
+    min-height: 34px;
+    padding: 0 12px;
+  }
+
+  .video-overlay-card {
+    left: 16px;
+    right: 16px;
+    bottom: 16px;
+    padding: 16px;
+  }
+
+  .auth-header h2 {
+    font-size: 1.6rem;
   }
 
   .primary-button.large,
