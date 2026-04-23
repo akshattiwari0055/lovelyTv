@@ -2,17 +2,18 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import gsap from "gsap";
 import {
-  Bell,
   Compass,
   Flame,
   Home,
   Lock,
+  Menu,
   MessageCircle,
   Send,
   ShieldBan,
   UserCircle2,
   UserPlus,
   Users,
+  X,
   Camera,
   Phone,
   ImagePlus,
@@ -61,6 +62,7 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
   const [messageInput, setMessageInput] = useState("");
   const [status, setStatus] = useState("Ready to explore the campus network.");
   const [activeTab, setActiveTab] = useState<AppTab>("home");
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
   
   // New Feature States
   const [courseFilter, setCourseFilter] = useState("");
@@ -93,6 +95,11 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
     if (count >= 4) return "4+";
     return `+${count}`;
   };
+
+  function handleNavigate(tab: AppTab) {
+    setActiveTab(tab);
+    setIsMenuOpen(false);
+  }
 
   useEffect(() => {
     const ctx = gsap.context(() => {
@@ -519,11 +526,7 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
     <section className="ome-chat-layout insta-chat-layout dashboard-reveal">
       <div className="ome-chat-sidebar insta-chat-sidebar">
         <div className="insta-sidebar-header">
-          <div>
-            <p className="insta-sidebar-label">Inbox</p>
-            <h3>Messages</h3>
-          </div>
-          <span>{friends.length} chats</span>
+          <h3>Messages</h3>
         </div>
         <div className="insta-sidebar-pill-row">
           <button className="insta-filter-pill active" type="button">Primary</button>
@@ -762,25 +765,6 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
             </div>
           </div>
 
-          <div className="ome-side-links">
-            <button className={activeTab === "home" ? "ome-nav-item active" : "ome-nav-item"} onClick={() => setActiveTab("home")}>
-              <Home size={18} />
-              <span>Home</span>
-            </button>
-            <button className={activeTab === "discover" ? "ome-nav-item active" : "ome-nav-item"} onClick={() => setActiveTab("discover")}>
-              <Compass size={18} />
-              <span>Discover</span>
-            </button>
-            <button className={activeTab === "chat" ? "ome-nav-item active" : "ome-nav-item"} onClick={() => setActiveTab("chat")}>
-              <MessageCircle size={18} />
-              <span>Messages</span>
-            </button>
-            <button className={activeTab === "profile" ? "ome-nav-item active" : "ome-nav-item"} onClick={() => setActiveTab("profile")}>
-              <UserCircle2 size={18} />
-              <span>Profile</span>
-            </button>
-          </div>
-
           <div className="ome-side-friends-section">
             <span className="side-heading">Friends</span>
             <div className="side-friends-list">
@@ -801,23 +785,16 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
               ))}
             </div>
           </div>
-
-          <button className="ghost-button ome-side-logout" onClick={onLogout}>Logout</button>
         </aside>
 
         <div className="ome-content-shell">
           <header className="ome-topbar dashboard-reveal">
-            <div className="ome-brand">
-              <div>
-                <span className="ome-page-title">
-                  {activeTab === "home" ? "Home" : activeTab === "discover" ? "Discover" : activeTab === "chat" ? "Friends & Chat" : "Profile"}
-                </span>
-                <p className="ome-app-subtitle">Connect with LPU students in real time</p>
-              </div>
+            <div className="ome-topbar-title">
+              {activeTab === "home" ? "Home" : activeTab === "discover" ? "Discover" : activeTab === "chat" ? "Messages" : "Profile"}
             </div>
 
-            <button className="ome-notification-btn" onClick={() => setActiveTab("profile")}>
-              <Bell size={18} />
+            <button className="ome-menu-button" onClick={() => setIsMenuOpen((current) => !current)}>
+              {isMenuOpen ? <X size={20} /> : <Menu size={20} />}
               {pendingCount > 0 ? <span className="ome-badge">{pendingCount}</span> : null}
             </button>
           </header>
@@ -829,24 +806,41 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
             {activeTab === "profile" ? renderProfile() : null}
           </main>
 
-          <nav className="ome-bottom-nav">
-            <button className={activeTab === "home" ? "ome-nav-item active" : "ome-nav-item"} onClick={() => setActiveTab("home")}>
-              <Home size={18} />
-              <span>Home</span>
-            </button>
-            <button className={activeTab === "discover" ? "ome-nav-item active" : "ome-nav-item"} onClick={() => setActiveTab("discover")}>
-              <Compass size={18} />
-              <span>Discover</span>
-            </button>
-            <button className={activeTab === "chat" ? "ome-nav-item active" : "ome-nav-item"} onClick={() => setActiveTab("chat")}>
-              <MessageCircle size={18} />
-              <span>Messages</span>
-            </button>
-            <button className={activeTab === "profile" ? "ome-nav-item active" : "ome-nav-item"} onClick={() => setActiveTab("profile")}>
-              <UserCircle2 size={18} />
-              <span>Profile</span>
-            </button>
-          </nav>
+          {isMenuOpen ? (
+            <div className="ome-menu-drawer">
+              <div className="ome-menu-sheet">
+                <div className="ome-menu-user">
+                  <div className="profile-mini-avatar">{user.fullName.slice(0, 1).toUpperCase()}</div>
+                  <div>
+                    <strong>{user.fullName}</strong>
+                    <p>{user.email}</p>
+                  </div>
+                </div>
+
+                <div className="ome-menu-links">
+                  <button className={activeTab === "home" ? "ome-menu-item active" : "ome-menu-item"} onClick={() => handleNavigate("home")}>
+                    <Home size={18} />
+                    <span>Home</span>
+                  </button>
+                  <button className={activeTab === "discover" ? "ome-menu-item active" : "ome-menu-item"} onClick={() => handleNavigate("discover")}>
+                    <Compass size={18} />
+                    <span>Discover</span>
+                  </button>
+                  <button className={activeTab === "chat" ? "ome-menu-item active" : "ome-menu-item"} onClick={() => handleNavigate("chat")}>
+                    <MessageCircle size={18} />
+                    <span>Messages</span>
+                  </button>
+                  <button className={activeTab === "profile" ? "ome-menu-item active" : "ome-menu-item"} onClick={() => handleNavigate("profile")}>
+                    <UserCircle2 size={18} />
+                    <span>Profile</span>
+                    {pendingCount > 0 ? <span className="ome-menu-count">{pendingCount}</span> : null}
+                  </button>
+                </div>
+
+                <button className="ghost-button ome-menu-logout" onClick={onLogout}>Logout</button>
+              </div>
+            </div>
+          ) : null}
         </div>
         
         {/* Outgoing Call Overlay */}

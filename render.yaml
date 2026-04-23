@@ -1,0 +1,44 @@
+services:
+  - type: web
+    name: lovelytv-backend
+    runtime: node
+    plan: free
+    rootDir: .
+    buildCommand: npm install && npm run build --workspace server
+    startCommand: npm run start:deploy --workspace server
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: 22
+      - key: CLIENT_URL
+        sync: false
+      - key: CLIENT_URLS
+        sync: false
+      - key: DATABASE_URL
+        fromDatabase:
+          name: lovelytv-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: ZEGO_APP_ID
+        sync: false
+      - key: ZEGO_SERVER_SECRET
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        sync: false
+      - key: SMTP_SECURE
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: MAIL_FROM
+        sync: false
+
+databases:
+  - name: lovelytv-db
+    plan: free

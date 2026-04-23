@@ -14,9 +14,19 @@ import { areSameUsers, getConversationRoom, isLpuEmail, normalizeFriendPair, nor
 
 const app = express();
 const httpServer = createServer(app);
+
+const corsOrigin = (origin: string | undefined, callback: (error: Error | null, allow?: boolean) => void) => {
+  if (!origin || config.clientUrls.includes(origin)) {
+    callback(null, true);
+    return;
+  }
+
+  callback(new Error(`Origin ${origin} is not allowed by CORS`));
+};
+
 const io = new Server(httpServer, {
   cors: {
-    origin: config.clientUrl,
+    origin: corsOrigin,
     credentials: true
   }
 });
@@ -57,14 +67,26 @@ async function isBlockedBetween(userAId: string, userBId: string) {
 
 app.use(
   cors({
-    origin: config.clientUrl,
+    origin: corsOrigin,
     credentials: true
   })
 );
 app.use(express.json());
+app.set("trust proxy", 1);
+
+app.get("/", (_req, res) => {
+  res.json({
+    ok: true,
+    service: "LPU TV backend",
+    health: "/api/health"
+  });
+});
 
 app.get("/api/health", (_req, res) => {
-  res.json({ ok: true });
+  res.json({
+    ok: true,
+    allowedOrigins: config.clientUrls
+  });
 });
 
 app.get("/api/public/stats", async (_req, res) => {

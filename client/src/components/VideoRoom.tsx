@@ -172,6 +172,11 @@ export function VideoRoom({
           const rect = element.getBoundingClientRect();
           const hasSvg = element.querySelector("svg") !== null;
           const nearBottom = rect.top > containerRect.top + containerRect.height * 0.7;
+          const nearCenter =
+            rect.left < containerRect.left + containerRect.width * 0.7 &&
+            rect.right > containerRect.left + containerRect.width * 0.3 &&
+            rect.top < containerRect.top + containerRect.height * 0.7 &&
+            rect.bottom > containerRect.top + containerRect.height * 0.3;
 
           // Hide anything that looks like a call control/button/bottom bar
           const isButtonOrIcon = element.tagName === "BUTTON" || element.getAttribute("role") === "button" || hasSvg;
@@ -231,8 +236,6 @@ export function VideoRoom({
         showMyMicrophoneToggleButton: false,
         showAudioVideoSettingsButton: false,
         showTextChat: false,
-        showLeaveButton: false,
-        showBottomMenuBar: false,
         lowerLeftNotification: {
           showUserJoinAndLeave: false,
           showTextChat: false,
