@@ -1310,6 +1310,8 @@ textarea {
 .ome-hero-card {
   position: relative;
   overflow: hidden;
+  display: grid;
+  gap: 18px;
   padding: 40px 36px;
   border: 1px solid rgba(255, 255, 255, 0.06);
   background: linear-gradient(145deg, rgba(30, 40, 60, 0.4), rgba(15, 20, 32, 0.8));
@@ -1354,7 +1356,7 @@ textarea {
 }
 
 .ome-hero-actions {
-  margin-top: 28px;
+  margin-top: 10px;
   max-width: 320px;
 }
 
@@ -3375,7 +3377,7 @@ textarea {
   }
 
   .suggested-carousel {
-    grid-auto-columns: minmax(220px, 260px);
+    grid-auto-columns: minmax(210px, 244px);
   }
 
   .ome-content-shell {
@@ -3646,7 +3648,8 @@ textarea {
   }
 
   .ome-main-content {
-    padding-bottom: 14px;
+    gap: 14px;
+    padding-bottom: 12px;
   }
 
   .dashboard-home-grid {
@@ -3654,44 +3657,87 @@ textarea {
   }
 
   .ome-hero-card {
-    padding: 22px 18px 18px;
-    border-radius: 24px;
+    gap: 12px;
+    padding: 18px 16px 16px;
+    border-radius: 22px;
   }
 
   .ome-hero-copy h1 {
-    font-size: 1.72rem;
-    line-height: 1.08;
-    margin-bottom: 10px;
+    font-size: 1.46rem;
+    line-height: 1.12;
+    margin-bottom: 8px;
   }
 
   .ome-hero-copy p:last-child {
     max-width: none;
-    font-size: 0.94rem;
-    line-height: 1.45;
+    font-size: 0.86rem;
+    line-height: 1.4;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
   }
 
   .ome-hero-actions {
-    margin-top: 16px;
+    margin-top: 4px;
     max-width: none;
   }
 
   .ome-start-button {
-    min-height: 56px;
+    min-height: 50px;
     border-radius: 18px;
-    font-size: 0.98rem;
+    font-size: 0.92rem;
+    gap: 10px;
   }
 
   .ome-section {
-    padding: 14px;
+    padding: 12px;
     border-radius: 22px;
   }
 
   .ome-section-head {
-    margin-bottom: 12px;
+    margin-bottom: 10px;
   }
 
   .ome-section-head h3 {
-    font-size: 1.45rem;
+    font-size: 1.22rem;
+  }
+
+  .suggested-carousel {
+    grid-auto-columns: minmax(184px, 208px);
+    gap: 10px;
+  }
+
+  .suggested-carousel-card {
+    gap: 10px;
+    min-height: 168px;
+    padding: 12px;
+    border-radius: 18px;
+  }
+
+  .suggested-avatar {
+    width: 48px;
+    height: 48px;
+    font-size: 1rem;
+  }
+
+  .suggested-copy strong {
+    font-size: 1rem;
+  }
+
+  .suggested-copy span {
+    font-size: 0.84rem;
+    line-height: 1.35;
+  }
+
+  .friends-preview-list.compact {
+    gap: 10px;
+  }
+
+  .friend-preview-card.compact,
+  .empty-card {
+    padding: 14px;
+    border-radius: 18px;
   }
 
   .suggested-card,
