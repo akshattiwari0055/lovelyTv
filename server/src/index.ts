@@ -295,7 +295,7 @@ app.post("/api/auth/google", async (req, res) => {
     const normalizedEmail = googleUser.email.toLowerCase();
 
     if (!isLpuEmail(normalizedEmail)) {
-      return res.status(400).json({ message: "Only official LPU Google accounts are allowed" });
+      return res.status(400).json({ message: "Only Campus LPU Google accounts are allowed" });
     }
 
     const existingUser = await prisma.user.findUnique({
