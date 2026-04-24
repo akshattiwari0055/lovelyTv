@@ -6,7 +6,7 @@ import { Dashboard } from "./components/Dashboard";
 import { RandomChatPage } from "./components/RandomChatPage";
 import { setAuthToken } from "./lib/api";
 import { User } from "./types";
-
+import { Analytics } from "@vercel/analytics/react";
 type SessionState = {
   token: string;
   user: User;
@@ -104,8 +104,8 @@ export function App() {
   }, [session]);
 
   const handleLogout = () => setSession(null);
-
   return (
+  <>
     <Routes>
       <Route
         path="/"
@@ -120,6 +120,7 @@ export function App() {
           )
         }
       />
+
       <Route
         path="/auth"
         element={
@@ -133,6 +134,7 @@ export function App() {
           )
         }
       />
+
       <Route
         path="/app"
         element={
@@ -147,6 +149,7 @@ export function App() {
           )
         }
       />
+
       <Route
         path="/app/random"
         element={
@@ -158,5 +161,9 @@ export function App() {
         }
       />
     </Routes>
-  );
+
+    {/* 👇 ADD THIS LINE */}
+    <Analytics />
+  </>
+);
 }

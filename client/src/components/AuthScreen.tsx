@@ -708,7 +708,7 @@ export function AuthScreen({ onAuthenticated, isLoggedIn }: AuthScreenProps) {
             {/* ── LEFT ASIDE ── */}
             <aside className="auth-aside ar">
               <div className="aside-copy ar">
-                <p className="aside-eyebrow">Welcome to LPU TV</p>
+                <p className="aside-eyebrow">Welcome to CampusTV</p>
                 <h1>
                   {mode === "register"
                     ? "Join campus conversations in one step."
@@ -716,14 +716,14 @@ export function AuthScreen({ onAuthenticated, isLoggedIn }: AuthScreenProps) {
                 </h1>
                 <p>
                   {mode === "register"
-                    ? "Name, LPU email, registration number, OTP. No clutter, no long forms."
-                    : "Use your LPU email OTP or Google account to re-enter your verified student network."}
+                    ? "Name, Campus email, registration number, OTP. No clutter, no long forms."
+                    : "Use your Campus email OTP or Google account to re-enter your verified student network."}
                 </p>
               </div>
 
               <div className="aside-highlights ar">
                 {[
-                  "Verified access using official LPU identity",
+                  "Verified access using official Campus identity",
                   "Fast OTP onboarding with just the essentials",
                   "Google sign-in for one-tap entry"
                 ].map((item) => (
@@ -736,7 +736,7 @@ export function AuthScreen({ onAuthenticated, isLoggedIn }: AuthScreenProps) {
 
               <div className="aside-metrics ar">
                 <div className="aside-metric">
-                  <strong>LPU-only</strong>
+                  <strong>Campus-only</strong>
                   <span>Students join with verified campus identity.</span>
                 </div>
                 <div className="aside-metric">
@@ -812,16 +812,16 @@ export function AuthScreen({ onAuthenticated, isLoggedIn }: AuthScreenProps) {
                     </label>
 
                     <label className="form-field">
-                      <span>Official LPU email</span>
+                      <span>Official Campus email</span>
                       <div className="input-wrap">
                         <Mail className="ico" size={16} />
-                        <input placeholder="name@lpu.in" type="email" value={registerForm.email}
+                        <input placeholder="name@gmail.com" type="email" value={registerForm.email}
                           onChange={(e) => setRegisterForm(c => ({ ...c, email: e.target.value }))} required />
                       </div>
                     </label>
 
                     <div className="otp-row">
-                      <p className="otp-row-hint">OTP sent only to <strong>@lpu.in</strong> email.</p>
+                      <p className="otp-row-hint">OTP sent only to <strong>@gmail.com</strong> email.</p>
                       <button className="send-otp-btn" type="button"
                         disabled={loading || !hasRegisterEmail}
                         onClick={() => void requestOtp(registerForm.email, "register")}>
@@ -837,7 +837,7 @@ export function AuthScreen({ onAuthenticated, isLoggedIn }: AuthScreenProps) {
                           <input placeholder="8 digits" value={registerForm.registrationNo}
                             inputMode="numeric" pattern="[0-9]{8}" maxLength={8}
                             onChange={(e) => setRegisterForm(c => ({ ...c, registrationNo: e.target.value.replace(/\D/g, "").slice(0, 8) }))}
-                            required />
+                             />
                         </div>
                       </label>
 
@@ -858,23 +858,23 @@ export function AuthScreen({ onAuthenticated, isLoggedIn }: AuthScreenProps) {
                     </div>
 
                     <button className="submit-btn" type="submit" disabled={loading}>
-                      {loading ? "Setting up…" : "Join LPU TV"} <ArrowRight size={15} />
+                      {loading ? "Setting up…" : "Join CampusTV"} <ArrowRight size={15} />
                     </button>
                   </form>
                 ) : (
                   /* LOGIN FORM */
                   <form className="auth-form ar" onSubmit={handleOtpLogin}>
                     <label className="form-field">
-                      <span>Official LPU email</span>
+                      <span>Official Campus email</span>
                       <div className="input-wrap">
                         <Mail className="ico" size={16} />
-                        <input placeholder="name@lpu.in" type="email" value={otpLoginForm.email}
+                        <input placeholder="name@gmail.com" type="email" value={otpLoginForm.email}
                           onChange={(e) => setOtpLoginForm(c => ({ ...c, email: e.target.value }))} required />
                       </div>
                     </label>
 
                     <div className="otp-row">
-                      <p className="otp-row-hint">Use your <strong>@lpu.in</strong> email to receive OTP.</p>
+                      <p className="otp-row-hint">Use your <strong>@gmail.com</strong> email to receive OTP.</p>
                       <button className="send-otp-btn" type="button"
                         disabled={loading || !hasOtpLoginEmail}
                         onClick={() => void requestOtp(otpLoginForm.email, "login")}>

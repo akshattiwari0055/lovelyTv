@@ -485,7 +485,7 @@ export function LandingPage({ isLoggedIn, onLogout }: LandingPageProps) {
           <div className="lp-hero-left">
             <div className="lp-live-pill lp-reveal">
               <span className="lp-live-dot" />
-              {stats.onlineNow > 0 ? `${stats.onlineNow.toLocaleString()} students online` : "LPU campus network"}
+              {stats.onlineNow > 0 ? `${stats.onlineNow.toLocaleString()} students online` : "Campus network"}
             </div>
 
             <h1 className="lp-h1 lp-reveal">
@@ -493,7 +493,7 @@ export function LandingPage({ isLoggedIn, onLogout }: LandingPageProps) {
             </h1>
 
             <p className="lp-subtitle lp-reveal">
-              Verified random video chat — exclusively for LPU students. Sign in with your university email and start a real conversation in seconds.
+              Verified random video chat — exclusively for Campus students. Sign in with your university email and start a real conversation in seconds.
             </p>
 
             <div className="lp-btn-row lp-reveal">
@@ -506,7 +506,7 @@ export function LandingPage({ isLoggedIn, onLogout }: LandingPageProps) {
             </div>
 
             <div className="lp-trust-row lp-reveal">
-              {["OTP or Google sign-in", "LPU email only", "Free to join"].map((t) => (
+              {["OTP or Google sign-in", "Campus email only", "Free to join"].map((t) => (
                 <span key={t} className="lp-trust-tag">{t}</span>
               ))}
             </div>
@@ -537,7 +537,7 @@ export function LandingPage({ isLoggedIn, onLogout }: LandingPageProps) {
               </div>
               <div>
                 <strong>Fast onboarding</strong>
-                <span>Name + LPU email OTP</span>
+                <span>Name + Campus email OTP</span>
               </div>
             </div>
 
@@ -547,11 +547,11 @@ export function LandingPage({ isLoggedIn, onLogout }: LandingPageProps) {
               </div>
               <div>
                 <strong>Verified students only</strong>
-                <span><BadgeCheck size={11} />LPU-only entries</span>
+                <span><BadgeCheck size={11} />Campus-only entries</span>
               </div>
             </div>
 
-            <span className="lp-vert-label">LPU TV — Campus Connect</span>
+            <span className="lp-vert-label">CampusTV — Campus Connect</span>
           </div>
 
           <div className="lp-scroll-hint">
@@ -574,7 +574,7 @@ export function LandingPage({ isLoggedIn, onLogout }: LandingPageProps) {
             </div>
             <div className="lp-feat-grid">
               {[
-                { icon: <ShieldCheck size={19} />, title: "LPU-only verification", desc: "Only students using their official university identity can join — real people, real campus." },
+                { icon: <ShieldCheck size={19} />, title: "Campus-only verification", desc: "Only students using their official university identity can join — real people, real campus." },
                 { icon: <Radar size={19} />,       title: "Instant random matching", desc: "Skip the profiles. Jump into a live conversation in seconds with a fellow student." },
                 { icon: <MessageSquareText size={19} />, title: "Keep chatting later", desc: "Turn a great match into a lasting conversation with built-in real-time messaging." },
                 { icon: <BadgeCheck size={19} />, title: "More signal, less noise", desc: "Profiles focus on bio, interests, and authenticity — no clutter, no distractions." },
@@ -622,12 +622,12 @@ export function LandingPage({ isLoggedIn, onLogout }: LandingPageProps) {
                 <p className="lp-cta-eyebrow">Ready to join</p>
                 <h2 className="lp-cta-h2">Make your next campus connection feel effortless.</h2>
                 <p className="lp-cta-p">
-                  Create your profile, verify your LPU identity, and start meeting students in a space built for real conversations.
+                  Create your profile, verify your Campus identity, and start meeting students in a space built for real conversations.
                 </p>
               </div>
               <div className="lp-cta-right">
                 <button className="lp-cta-btn" onClick={handleCta}>
-                  Join LPU TV now <ArrowRight size={15} />
+                  Join CampusTV now <ArrowRight size={15} />
                 </button>
               </div>
             </div>

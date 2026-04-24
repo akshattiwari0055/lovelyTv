@@ -13,7 +13,7 @@ export function Header({ isLoggedIn, onLogout }: HeaderProps) {
       <div className="header-container">
         <Link to="/" className="logo">
           <span className="logo-icon">📺</span>
-          <span className="logo-text">LPU TV</span>
+          <span className="logo-text">CampusTV</span>
         </Link>
 
         <nav className="main-nav">

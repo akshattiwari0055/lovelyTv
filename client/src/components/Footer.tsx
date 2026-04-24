@@ -7,14 +7,14 @@ export function Footer() {
         <div className="footer-info">
           <div className="logo footer-logo">
             <span className="logo-icon">📺</span>
-            <span className="logo-text">LPU TV</span>
+            <span className="logo-text">CampusTV</span>
           </div>
           <p>
             The student-first video community for Lovely Professional University, designed for safe
             introductions, better conversations, and real campus connections.
           </p>
           <div className="footer-badges">
-            <span><ShieldCheck size={16} /> Verified with LPU email</span>
+            <span><ShieldCheck size={16} /> Verified with Campus email</span>
             <span><Sparkles size={16} /> Built for meaningful matches</span>
           </div>
         </div>
@@ -43,7 +43,7 @@ export function Footer() {
         </div>
       </div>
       <div className="footer-bottom">
-        <p>&copy; {new Date().getFullYear()} LPU TV. For student educational purposes only.</p>
+        <p>&copy; {new Date().getFullYear()} CampusTV. For student educational purposes only.</p>
       </div>
     </footer>
   );

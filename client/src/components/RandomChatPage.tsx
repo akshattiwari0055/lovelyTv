@@ -902,7 +902,7 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
               </svg>
             </button>
             <div className="rcp-wordmark" onClick={() => navigate("/app")}>
-              LPU TV <span className="rcp-badge">Beta</span>
+              CampusTV <span className="rcp-badge"></span>
             </div>
           </div>
           <div className="rcp-topbar-right">
@@ -994,7 +994,7 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
                         </svg>
                       </div>
                       <p className="rcp-idle-txt">{connectionIssue ? "Connection lost" : "Tap Start to begin"}</p>
-                      {!connectionIssue && <p className="rcp-idle-sub">Meet LPU students via video</p>}
+                      {!connectionIssue && <p className="rcp-idle-sub">Meet Campus students via video</p>}
                     </div>
 
                     {/* "You" label — bottom-left, same as connected state */}
