@@ -1057,12 +1057,8 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
           {nameFilter.trim() && <span style={{ color: C.accent, marginLeft: 4 }}>for "{nameFilter.trim()}"</span>}
         </div>
       </div>
-      <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden", padding: isDesktop ? "20px 28px" : "14px 20px", minHeight: 0 }}>
-        <div style={{
-          display: "grid",
-          gridTemplateColumns: isDesktop ? "repeat(2, minmax(0, 1fr))" : "1fr",
-          gap: 12,
-        }}>
+      <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden", padding: "14px 20px", minHeight: 0 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           {filteredDiscoverUsers.map((u) => (
             <UserCard key={u.id} user={u} onAdd={() => void sendFriendRequest(u.id)} />
           ))}
@@ -1084,13 +1080,7 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
   const ProfileScreen = () => (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
       <ScreenHeader title="Profile" onBack={() => setActiveTab("home")} />
-      <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden", padding: isDesktop ? 28 : 20, minHeight: 0 }}>
-        <div style={{
-          display: "grid",
-          gridTemplateColumns: isDesktop ? "minmax(340px, 0.9fr) minmax(0, 1.1fr)" : "1fr",
-          gap: 18,
-          alignItems: "start",
-        }}>
+      <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden", padding: 20, minHeight: 0 }}>
         {/* Profile card */}
         <div style={{
           background: C.surfaceAlt, border: `1px solid ${C.border}`,
@@ -1282,7 +1272,6 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
               ))
           }
         </div>
-        </div>
         <div style={{ height: 24 }} />
       </div>
     </div>
@@ -1297,13 +1286,6 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
   ];
   const navActive = (id: AppTab) =>
     id === "messages" ? (activeTab === "messages" || activeTab === "chat") : activeTab === id;
-  const renderActiveScreen = () => {
-    if (activeTab === "home") return HomeScreen();
-    if (activeTab === "discover") return DiscoverScreen();
-    if (activeTab === "messages") return MessagesScreen();
-    if (activeTab === "chat") return ChatScreen();
-    return ProfileScreen();
-  };
 
   // ─── RENDER ───────────────────────────────────────────────────────────────
   return (
