@@ -73,7 +73,7 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
   const [connectionIssue, setConnectionIssue] = useState("");
   const [showReactionTray, setShowReactionTray] = useState(false);
 
-  // Swipe state (mobile)
+  // FIX 2: Reversed swipe — left = next, right = stop
   const swipeStartX = useRef<number | null>(null);
   const swipeStartY = useRef<number | null>(null);
   const [swipeDelta, setSwipeDelta] = useState(0);
@@ -113,8 +113,6 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
   }, [liveMessages, showLiveChat]);
 
   // Local camera preview — ONLY before Zego is active
-  // Once Zego starts, it handles both local + remote video internally.
-  // We must NOT run our own getUserMedia at the same time or we get 3 video boxes.
   useEffect(() => {
     if (hasStarted || zegoConnecting || zegoRenderMatch) return;
     let cancelled = false;
@@ -147,20 +145,59 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
     setZegoRenderMatch(null);
   }, [match]);
 
+  // FIX 1: Remove Zego's built-in hangup/leave button via DOM observer
   useEffect(() => {
-    const kill = (node: HTMLElement) => {
+    const removeZegoUI = (node: HTMLElement) => {
+      // Remove "Media play failed" / "Resume" overlays
       const text = node.textContent || "";
-      if (!text.includes("Media play failed") && !text.includes("Resume")) return;
-      let target: HTMLElement = node;
-      while (target.parentElement && target.parentElement !== document.body) target = target.parentElement;
-      target.remove();
+      if (text.includes("Media play failed") || text.includes("Resume")) {
+        let target: HTMLElement = node;
+        while (target.parentElement && target.parentElement !== document.body) target = target.parentElement;
+        target.remove();
+        return;
+      }
     };
+
+    // Inject CSS to hide Zego's internal leave/hangup button and footer bar
+    const style = document.createElement("style");
+    style.id = "zego-overrides";
+    style.textContent = `
+      /* Hide Zego leave/hangup button and bottom toolbar */
+      [class*="ZegoRoomFooter"],
+      [class*="zego-room-footer"],
+      [class*="ZegoLeaveButton"],
+      [class*="zego-leave"],
+      [class*="ZegoFooter"],
+      [class*="footer-leave"],
+      [data-testid*="leave"],
+      button[title*="Leave"],
+      button[title*="leave"],
+      button[aria-label*="Leave"],
+      button[aria-label*="leave"],
+      button[aria-label*="Hang"],
+      button[aria-label*="hang"] {
+        display: none !important;
+        visibility: hidden !important;
+        pointer-events: none !important;
+      }
+      /* Hide any bottom bar Zego renders */
+      [class*="ZegoRoom"] > div > div:last-child:has(button) {
+        display: none !important;
+      }
+    `;
+    if (!document.getElementById("zego-overrides")) {
+      document.head.appendChild(style);
+    }
+
     const observer = new MutationObserver((mutations) =>
-      mutations.forEach((m) => m.addedNodes.forEach((n) => { if (n instanceof HTMLElement) kill(n); }))
+      mutations.forEach((m) => m.addedNodes.forEach((n) => { if (n instanceof HTMLElement) removeZegoUI(n); }))
     );
     observer.observe(document.body, { childList: true, subtree: true });
-    document.body.querySelectorAll<HTMLElement>("div").forEach((div) => { if (div.parentElement === document.body) kill(div); });
-    return () => observer.disconnect();
+    document.body.querySelectorAll<HTMLElement>("div").forEach((div) => { if (div.parentElement === document.body) removeZegoUI(div); });
+    return () => {
+      observer.disconnect();
+      document.getElementById("zego-overrides")?.remove();
+    };
   }, []);
 
   useEffect(() => {
@@ -232,9 +269,10 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
     setSwipeDelta(dx); setSwipeDir(dx > 0 ? "right" : "left");
   }
   function handleTouchEnd() {
+    // FIX 2: REVERSED — left swipe = next, right swipe = stop
     if (Math.abs(swipeDelta) > 80 && hasStarted) {
-      if (swipeDir === "right" && isInCall) nextMatch();
-      else if (swipeDir === "left") stopMatching();
+      if (swipeDir === "left" && isInCall) nextMatch();       // LEFT = Next
+      else if (swipeDir === "right") stopMatching();          // RIGHT = Stop
     }
     setSwipeDelta(0); setSwipeDir(null);
     swipeStartX.current = null; swipeStartY.current = null;
@@ -407,36 +445,99 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
           .rcp-sidebar { display: none; }
         }
 
-        /* 
-          THE KEY FIX:
-          Zego's SDK renders BOTH the local user and the remote user inside a single
-          container div. We mount ONE VideoRoom component that fills the entire video
-          column. We do NOT render a separate <video> for local when Zego is active —
-          that caused the 3-box problem. The local <video> is only for the idle preview
-          before matching starts.
-        */
+        /* Zego fills entire video column — both local + remote inside */
         .rcp-zego-fill {
           position: absolute; inset: 0;
           width: 100%; height: 100%;
+        }
+
+        /* FIX 1: Aggressively hide Zego's built-in leave/hangup button */
+        .rcp-zego-fill [class*="footer"],
+        .rcp-zego-fill [class*="Footer"],
+        .rcp-zego-fill [class*="leave"],
+        .rcp-zego-fill [class*="Leave"],
+        .rcp-zego-fill [class*="hangup"],
+        .rcp-zego-fill [class*="Hangup"],
+        .rcp-zego-fill [class*="toolbar"],
+        .rcp-zego-fill [class*="Toolbar"],
+        .rcp-zego-fill [class*="bottom-bar"],
+        .rcp-zego-fill button[title*="Leave"],
+        .rcp-zego-fill button[aria-label*="Leave"],
+        .rcp-zego-fill button[aria-label*="leave"],
+        .rcp-zego-fill button[aria-label*="Hang"],
+        .rcp-zego-fill svg[class*="phone"] {
+          display: none !important;
+          visibility: hidden !important;
+          pointer-events: none !important;
+          width: 0 !important;
+          height: 0 !important;
+          opacity: 0 !important;
         }
 
         /* Idle / connecting screen */
         .rcp-idle {
           position: absolute; inset: 0; z-index: 2;
           display: flex; flex-direction: column;
-          align-items: center; justify-content: center; gap: 16px;
+          align-items: center; justify-content: center; gap: 0;
           background: linear-gradient(145deg, #0e0e16 0%, #0a0a0f 100%);
+          padding: 20px;
+        }
+
+        /* FIX 3: Idle video preview — large, full-area layout matching connected state */
+        .rcp-idle-video-wrap {
+          position: absolute; inset: 0;
+          width: 100%; height: 100%;
+          overflow: hidden;
+        }
+        .rcp-idle-video-wrap video {
+          width: 100%; height: 100%; object-fit: cover; display: block;
+        }
+        /* Dark overlay so text is readable over the preview */
+        .rcp-idle-video-wrap::after {
+          content: '';
+          position: absolute; inset: 0;
+          background: linear-gradient(
+            to bottom,
+            rgba(0,0,0,0.15) 0%,
+            rgba(0,0,0,0.05) 40%,
+            rgba(0,0,0,0.35) 100%
+          );
+          pointer-events: none;
+        }
+        /* Overlay content on top of the full-screen preview */
+        .rcp-idle-overlay {
+          position: absolute; inset: 0; z-index: 3;
+          display: flex; flex-direction: column;
+          align-items: center; justify-content: center; gap: 10px;
+          pointer-events: none;
         }
         .rcp-idle-icon {
-          width: 64px; height: 64px; border-radius: 20px;
-          background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
+          width: 56px; height: 56px; border-radius: 18px;
+          background: rgba(0,0,0,0.45); backdrop-filter: blur(12px);
+          border: 1px solid rgba(255,255,255,0.12);
           display: flex; align-items: center; justify-content: center;
         }
-        .rcp-idle-txt { font-size: 15px; font-weight: 500; color: rgba(255,255,255,0.35); }
-        .rcp-idle-sub { font-size: 12px; color: rgba(255,255,255,0.15); margin-top: -8px; }
+        .rcp-idle-txt {
+          font-size: 15px; font-weight: 600; color: rgba(255,255,255,0.9);
+          text-shadow: 0 1px 8px rgba(0,0,0,0.6);
+        }
+        .rcp-idle-sub {
+          font-size: 12px; color: rgba(255,255,255,0.5);
+          text-shadow: 0 1px 6px rgba(0,0,0,0.5);
+        }
+        /* "You" label at bottom-left of preview, like connected state */
+        .rcp-you-tag {
+          position: absolute; bottom: 14px; left: 14px; z-index: 4;
+          background: rgba(0,0,0,0.55); backdrop-filter: blur(8px);
+          border: 1px solid rgba(255,255,255,0.1);
+          border-radius: 8px; padding: 4px 12px;
+          font-size: 11px; font-weight: 600; color: rgba(255,255,255,0.6);
+          text-transform: uppercase; letter-spacing: 0.8px;
+          font-family: 'Syne', sans-serif;
+        }
 
         /* Spinner */
-        .rcp-spin-wrap { display: flex; flex-direction: column; align-items: center; gap: 14px; }
+        .rcp-spin-wrap { display: flex; flex-direction: column; align-items: center; gap: 14px; position: relative; z-index: 3; }
         .rcp-spin {
           width: 44px; height: 44px; position: relative;
         }
@@ -461,23 +562,7 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
           transition: opacity 0.4s ease;
         }
 
-        /* Local camera preview — only shown on idle screen before Zego starts */
-        .rcp-local-preview {
-          width: 180px; height: 130px; border-radius: 14px;
-          overflow: hidden; border: 2px solid rgba(255,255,255,0.1);
-          position: relative; flex-shrink: 0;
-        }
-        .rcp-local-preview video {
-          width: 100%; height: 100%; object-fit: cover; display: block;
-        }
-        .rcp-you-tag {
-          position: absolute; bottom: 8px; left: 10px;
-          background: rgba(0,0,0,0.5); backdrop-filter: blur(6px);
-          border-radius: 6px; padding: 3px 9px;
-          font-size: 11px; font-weight: 600; color: rgba(255,255,255,0.5);
-        }
-
-        /* In-call overlays */
+        /* In-call badges */
         .rcp-call-badges {
           position: absolute; top: 14px; left: 14px;
           display: flex; align-items: center; gap: 8px;
@@ -529,7 +614,7 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
           100% { opacity: 0; transform: translateY(-100px) scale(1.5); }
         }
 
-        /* Swipe hints */
+        /* FIX 2: Swipe hints — reversed labels */
         .rcp-swipe-hint {
           position: absolute; inset: 0;
           display: flex; align-items: center; justify-content: center;
@@ -541,7 +626,9 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
           font-family: 'Syne', sans-serif;
           padding: 10px 24px; border-radius: 14px; backdrop-filter: blur(14px);
         }
+        /* LEFT = Next (was right) */
         .rcp-swipe-lbl.next { background: rgba(229,255,0,0.18); border: 2px solid rgba(229,255,0,0.5); color: #e5ff00; }
+        /* RIGHT = Stop (was left) */
         .rcp-swipe-lbl.stop { background: rgba(239,68,68,0.18); border: 2px solid rgba(239,68,68,0.5); color: #f87171; }
 
         /* DESKTOP SIDEBAR */
@@ -640,6 +727,7 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
         .ci-chat  { background: #17171f; border: 1px solid rgba(255,255,255,0.09); }
         .ci-chat.on { background: rgba(229,255,0,0.1); border-color: rgba(229,255,0,0.3); }
 
+        /* FIX 2: Swipe guide labels updated */
         .rcp-swipe-guide { display: none; margin-left: auto; }
         @media (max-width: 768px) {
           .rcp-swipe-guide { display: flex; flex-direction: column; gap: 3px; align-items: flex-end; }
@@ -794,11 +882,7 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
               : { transform: "translateX(0)", transition: "transform 0.3s ease" }
             }
           >
-            {/*
-              ONE Zego container = both users' videos.
-              Zego's Grid layout shows local tile + remote tile inside this single div.
-              Do NOT add a separate local <video> here — that causes the 3-box bug.
-            */}
+            {/* Zego VideoRoom — fills entire column */}
             {zegoRenderMatch && (
               <div
                 className="rcp-zego-fill"
@@ -832,7 +916,7 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
               </div>
             )}
 
-            {/* Idle screen — no Zego, no match */}
+            {/* FIX 3: Idle screen — full-area video preview matching connected-state layout */}
             {!zegoRenderMatch && !zegoConnecting && (
               <div className="rcp-idle">
                 {isMatching ? (
@@ -842,19 +926,24 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
                   </div>
                 ) : (
                   <>
-                    <div className="rcp-idle-icon">
-                      <svg width="26" height="26" fill="none" stroke="rgba(255,255,255,0.2)" strokeWidth="1.5" viewBox="0 0 24 24">
-                        <circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/>
-                      </svg>
-                    </div>
-                    <p className="rcp-idle-txt">{connectionIssue ? "Connection lost" : "Tap Start to begin"}</p>
-                    {!connectionIssue && <p className="rcp-idle-sub">Meet LPU students via video</p>}
-
-                    {/* Local preview ONLY before Zego starts — small preview card */}
-                    <div className="rcp-local-preview">
+                    {/* Full-area camera preview */}
+                    <div className="rcp-idle-video-wrap">
                       <video ref={localVideoRef} autoPlay muted playsInline />
-                      <span className="rcp-you-tag">You</span>
                     </div>
+
+                    {/* Centered overlay: icon + text */}
+                    <div className="rcp-idle-overlay">
+                      <div className="rcp-idle-icon">
+                        <svg width="24" height="24" fill="none" stroke="rgba(255,255,255,0.5)" strokeWidth="1.5" viewBox="0 0 24 24">
+                          <circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/>
+                        </svg>
+                      </div>
+                      <p className="rcp-idle-txt">{connectionIssue ? "Connection lost" : "Tap Start to begin"}</p>
+                      {!connectionIssue && <p className="rcp-idle-sub">Meet LPU students via video</p>}
+                    </div>
+
+                    {/* "You" label — bottom-left, same as connected state */}
+                    <span className="rcp-you-tag">You</span>
                   </>
                 )}
               </div>
@@ -893,12 +982,12 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
               ))}
             </div>
 
-            {/* Swipe hints */}
-            <div className={`rcp-swipe-hint ${swipeDir === "right" && Math.abs(swipeDelta) > 40 ? "on" : ""}`}>
-              <div className="rcp-swipe-lbl next">→ Next</div>
-            </div>
+            {/* FIX 2: Swipe hints — left = next, right = stop */}
             <div className={`rcp-swipe-hint ${swipeDir === "left" && Math.abs(swipeDelta) > 40 ? "on" : ""}`}>
-              <div className="rcp-swipe-lbl stop">← Stop</div>
+              <div className="rcp-swipe-lbl next">← Next</div>
+            </div>
+            <div className={`rcp-swipe-hint ${swipeDir === "right" && Math.abs(swipeDelta) > 40 ? "on" : ""}`}>
+              <div className="rcp-swipe-lbl stop">→ Stop</div>
             </div>
           </div>
 
@@ -975,10 +1064,11 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
             )}
           </div>
 
+          {/* FIX 2: Swipe guide labels — reversed */}
           {hasStarted && (
             <div className="rcp-swipe-guide">
-              <span className="rcp-swipe-tip">← Swipe left to stop</span>
-              <span className="rcp-swipe-tip">→ Swipe right for next</span>
+              <span className="rcp-swipe-tip">→ Swipe right to stop</span>
+              <span className="rcp-swipe-tip">← Swipe left for next</span>
             </div>
           )}
         </div>
