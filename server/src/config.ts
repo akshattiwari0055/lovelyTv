@@ -31,5 +31,5 @@ export const config = {
   smtpSecure: process.env.SMTP_SECURE === "true",
   smtpUser: process.env.SMTP_USER ?? "",
   smtpPass: process.env.SMTP_PASS ?? "",
-  mailFrom: process.env.MAIL_FROM ?? "LPU TV <no-reply@example.com>"
+  mailFrom: process.env.MAIL_FROM ?? "CampusTV <no-reply@example.com>"
 };

@@ -192,7 +192,7 @@ app.post("/api/auth/register", async (req, res) => {
   const { fullName, email, password, registrationNo, bio, interests, otp } = req.body as Record<string, string>;
   const normalizedEmail = email?.toLowerCase().trim();
 
-  if (!fullName || !normalizedEmail || !registrationNo || !otp) {
+  if (!fullName || !normalizedEmail || !otp) {
     return res.status(400).json({ message: "All required fields must be filled" });
   }
 
