@@ -1,14 +1,10 @@
 /**
  * Dashboard.tsx — Redesigned Mobile-First Campus Connect UI
  *
- * FIXES APPLIED:
- * 1. Hide user email everywhere — show course/year or interests fallback
- * 2. Discover: search by name (client-side filter) instead of course/year
- * 3. Chat input focus — refocus after send, font-size 16px prevents iOS zoom/layout shift
- * 4. No horizontal overflow — root is position:fixed + overflow:hidden
- * 5. Scroll isolation — only inner lists/msgs scroll via overflowY:auto + flex:1 + minHeight:0
- * 6. WhatsApp-style chat — sticky header, sticky composer, messages scroll independently
- * 7. Unread badge system — per-sender count, last message preview
+ * CHANGES:
+ * 1. Hero: replaced image with GSAP-animated headline + description (CDN via useEffect script injection)
+ * 2. Unread badges: blank if 0, "+1" "+2" etc. on ChatItem cards (WhatsApp style)
+ * 3. Keyboard dismiss: input blurs on every keydown then re-focuses — prevents stuck keyboard after 1 key
  */
 
 import {
@@ -84,6 +80,7 @@ function Avatar({ name, size = 40, gradient = "135deg, #ffb84a, #ff8c42" }:
 }
 
 // ─── ChatItem ─────────────────────────────────────────────────────────────────
+// CHANGE 2: show blank slot if 0 unread, "+N" badge if unread > 0
 function ChatItem({ friend, unread, lastMsg, active, onClick }:
   { friend: User; unread: number; lastMsg?: string; active?: boolean; onClick: () => void }) {
   return (
@@ -97,14 +94,13 @@ function ChatItem({ friend, unread, lastMsg, active, onClick }:
     }}>
       <div style={{ position: "relative", flexShrink: 0 }}>
         <Avatar name={friend.fullName} gradient="135deg, #4ee1b7, #1b8a6b" />
+        {/* dot indicator on avatar only when unread > 0 */}
         {unread > 0 && (
           <span style={{
             position: "absolute", top: -2, right: -2,
-            background: "#ff4444", color: "#fff",
-            fontSize: "0.55rem", fontWeight: 800,
-            padding: "1px 5px", borderRadius: 100,
-            border: "2px solid #0a0f1c",
-          }}>{unread > 99 ? "99+" : unread}</span>
+            background: "#25d366", width: 10, height: 10,
+            borderRadius: "50%", border: "2px solid #0a0f1c",
+          }} />
         )}
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
@@ -119,19 +115,28 @@ function ChatItem({ friend, unread, lastMsg, active, onClick }:
           overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
         }}>{lastMsg ?? (friend.interests || "Tap to chat")}</div>
       </div>
-      {unread > 0 && (
-        <span style={{
-          background: "#ffb84a", color: "#1a0e00",
-          fontSize: "0.65rem", fontWeight: 800,
-          padding: "3px 8px", borderRadius: 100, flexShrink: 0,
-        }}>{unread > 4 ? "4+" : `+${unread}`}</span>
-      )}
+      {/* CHANGE 2: always reserve space; show "+N" only when unread > 0; blank placeholder when 0 */}
+      <div style={{
+        minWidth: 36, height: 22,
+        display: "flex", alignItems: "center", justifyContent: "center",
+        flexShrink: 0,
+      }}>
+        {unread > 0 && (
+          <span style={{
+            background: "#25d366", color: "#fff",
+            fontSize: "0.65rem", fontWeight: 800,
+            padding: "3px 8px", borderRadius: 100,
+            whiteSpace: "nowrap",
+          }}>
+            {unread > 99 ? "+99" : `+${unread}`}
+          </span>
+        )}
+      </div>
     </button>
   );
 }
 
 // ─── UserCard ─────────────────────────────────────────────────────────────────
-// FIX 1: email is never shown — replaced with course/year or interests fallback
 function UserCard({ user: u, onAdd }: { user: User; onAdd: () => void }) {
   const [sent, setSent] = useState(false);
   return (
@@ -146,7 +151,6 @@ function UserCard({ user: u, onAdd }: { user: User; onAdd: () => void }) {
         <div style={{ fontSize: "0.87rem", fontWeight: 700, color: "#fff", marginBottom: 2 }}>
           {u.fullName}
         </div>
-        {/* FIXED: never show email — show course/year or interests or generic fallback */}
         <div style={{ fontSize: "0.73rem", color: "rgba(255,255,255,0.4)", marginBottom: 3 }}>
           {u.course && u.year
             ? `${u.course} · ${u.year} Year`
@@ -218,13 +222,146 @@ function MessageBubble({ msg, mine }: { msg: Message; mine: boolean }) {
   );
 }
 
+// ─── GSAP Hero ────────────────────────────────────────────────────────────────
+// CHANGE 1: replaces image hero with GSAP animated headline + description
+function GsapHero({ onStartRandom }: { onStartRandom: () => void }) {
+  const heroRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    // Inject GSAP from CDN if not already loaded
+    const loadGsap = () =>
+      new Promise<void>((resolve) => {
+        if ((window as any).gsap) { resolve(); return; }
+        const s = document.createElement("script");
+        s.src = "https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js";
+        s.onload = () => resolve();
+        document.head.appendChild(s);
+      });
+
+    loadGsap().then(() => {
+      const gsap = (window as any).gsap;
+      if (!heroRef.current) return;
+
+      const tl = gsap.timeline({ defaults: { ease: "power3.out" } });
+
+      // Stagger in all animated children
+      tl.fromTo(".gsap-badge", { opacity: 0, y: -16, scale: 0.85 }, { opacity: 1, y: 0, scale: 1, duration: 0.5 })
+        .fromTo(".gsap-line1", { opacity: 0, y: 40, skewY: 4 }, { opacity: 1, y: 0, skewY: 0, duration: 0.65 }, "-=0.2")
+        .fromTo(".gsap-line2", { opacity: 0, y: 40, skewY: 4 }, { opacity: 1, y: 0, skewY: 0, duration: 0.65 }, "-=0.45")
+        .fromTo(".gsap-desc", { opacity: 0, y: 22 }, { opacity: 1, y: 0, duration: 0.55 }, "-=0.3")
+        .fromTo(".gsap-cta", { opacity: 0, scale: 0.88, y: 12 }, { opacity: 1, scale: 1, y: 0, duration: 0.5 }, "-=0.2");
+
+      // Floating particles
+      gsap.utils.toArray(".gsap-particle").forEach((el: any, i: number) => {
+        gsap.to(el, {
+          y: `${-14 - i * 6}px`,
+          x: `${(i % 2 === 0 ? 1 : -1) * (8 + i * 3)}px`,
+          duration: 2.2 + i * 0.4,
+          repeat: -1,
+          yoyo: true,
+          ease: "sine.inOut",
+          delay: i * 0.3,
+        });
+      });
+
+      // Glow pulse
+      gsap.to(".gsap-glow", {
+        opacity: 0.35,
+        scale: 1.18,
+        duration: 2.6,
+        repeat: -1,
+        yoyo: true,
+        ease: "sine.inOut",
+      });
+    });
+  }, []);
+
+  return (
+    <div ref={heroRef} style={{
+      position: "relative", overflow: "hidden",
+      background: "linear-gradient(135deg, #0d2137 0%, #0a1628 55%, #111a2e 100%)",
+      border: "1px solid rgba(255,184,74,0.18)", borderRadius: 20,
+      padding: "32px 22px 28px", marginBottom: 22,
+      minHeight: 220,
+    }}>
+      {/* Animated glow blob */}
+      <div className="gsap-glow" style={{
+        position: "absolute", top: -70, right: -70, width: 260, height: 260,
+        borderRadius: "50%",
+        background: "radial-gradient(circle, rgba(255,184,74,0.22) 0%, transparent 70%)",
+        pointerEvents: "none", opacity: 0.2,
+      }} />
+
+      {/* Floating particles */}
+      {[
+        { top: "18%", left: "72%", size: 5, color: "#ffb84a" },
+        { top: "62%", left: "82%", size: 3.5, color: "#ff8c42" },
+        { top: "30%", left: "88%", size: 4, color: "rgba(255,184,74,0.5)" },
+        { top: "75%", left: "65%", size: 2.5, color: "#fff" },
+      ].map((p, i) => (
+        <div key={i} className="gsap-particle" style={{
+          position: "absolute", top: p.top, left: p.left,
+          width: p.size, height: p.size, borderRadius: "50%",
+          background: p.color, pointerEvents: "none", opacity: 0.7,
+        }} />
+      ))}
+
+      {/* Content */}
+      <div style={{ position: "relative", zIndex: 1 }}>
+        {/* Badge */}
+        <div className="gsap-badge" style={{ opacity: 0, ...S.heroBadge }}>
+          <span style={S.heroDot} /> LIVE CAMPUS CHAT
+        </div>
+
+        {/* Headline line 1 */}
+        <div style={{ overflow: "hidden", marginBottom: 4 }}>
+          <h1 className="gsap-line1" style={{
+            ...S.heroTitle, opacity: 0,
+            margin: "14px 0 0",
+          }}>
+            Talk to someone
+          </h1>
+        </div>
+
+        {/* Headline line 2 — gradient accent */}
+        <div style={{ overflow: "hidden", marginBottom: 10 }}>
+          <h1 className="gsap-line2" style={{
+            ...S.heroTitle, opacity: 0,
+            margin: "0 0 0",
+            background: "linear-gradient(90deg, #ffb84a 0%, #ff8c42 50%, #ffda8a 100%)",
+            WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text",
+          }}>
+            new from campus ✦
+          </h1>
+        </div>
+
+        {/* Description */}
+        <p className="gsap-desc" style={{
+          opacity: 0,
+          fontSize: "0.82rem",
+          color: "rgba(255,255,255,0.42)",
+          margin: "0 0 22px",
+          lineHeight: 1.6,
+          maxWidth: 260,
+        }}>
+          Discover real connections with students around you — instantly, anonymously, authentically.
+        </p>
+
+        {/* CTA */}
+        <button className="gsap-cta" style={{ ...S.heroCta, opacity: 0 }} onClick={onStartRandom}>
+          <Flame size={15} /> Start Random Chat
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ─── MAIN DASHBOARD ───────────────────────────────────────────────────────────
 export function Dashboard({ token, user, onLogout }: DashboardProps) {
   const navigate = useNavigate();
   const fileRef = useRef<HTMLInputElement>(null);
   const typingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
-  // FIX 3: ref for composer input so we can refocus after send
   const compInputRef = useRef<HTMLInputElement>(null);
 
   const [zegoConfig, setZegoConfig] = useState<{ appId: number; serverSecret: string } | null>(null);
@@ -251,15 +388,15 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
   const [isTyping, setIsTyping] = useState(false);
   const [partnerTyping, setPartnerTyping] = useState(false);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
-
-  // FIX 2: single name filter replacing courseFilter + yearFilter
   const [nameFilter, setNameFilter] = useState("");
+
+  // CHANGE 3: track whether keyboard dismiss is active
+  const [inputReadOnly, setInputReadOnly] = useState(false);
 
   const totalUnread = useMemo(
     () => Object.values(unreadCounts).reduce((a, b) => a + b, 0), [unreadCounts]);
   const conversationIsOpen = activeTab === "chat" && !!selectedFriend;
 
-  // FIX 2: client-side name filter — no extra API calls needed
   const filteredDiscoverUsers = useMemo(
     () => nameFilter.trim()
       ? discoverUsers.filter((u) =>
@@ -314,7 +451,6 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, selectedFriend?.id, conversationIsOpen, user.id]);
 
-  // FIX 2: no courseFilter/yearFilter in deps — name filter is client-side only
   useEffect(() => {
     void Promise.all([
       loadDiscover(), loadFriends(), loadRequests(), loadBlockedUsers(),
@@ -334,7 +470,6 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages, partnerTyping]);
 
-  // FIX 3: when switching to chat tab, focus the composer after render
   useEffect(() => {
     if (activeTab === "chat") {
       requestAnimationFrame(() => compInputRef.current?.focus());
@@ -342,7 +477,6 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
   }, [activeTab, selectedFriend?.id]);
 
   // ─── API ──────────────────────────────────────────────────────────────────
-  // FIX 2: loadDiscover no longer sends course/year params
   async function loadDiscover() {
     const r = await api.get("/discover");
     setDiscoverUsers(r.data);
@@ -411,7 +545,6 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
   }
 
   // ─── Messaging ────────────────────────────────────────────────────────────
-  // FIX 3: refocus input after send so keyboard stays open on mobile
   function handleSend(e: FormEvent) {
     e.preventDefault();
     if (!selectedFriend || (!messageInput.trim() && !imagePreview)) return;
@@ -423,10 +556,12 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
     getSocket()?.emit("typing:stop", { receiverId: selectedFriend.id });
     setMessageInput("");
     setImagePreview(null);
-    // Refocus after React re-render — keeps keyboard open on mobile & avoids re-click on desktop
     requestAnimationFrame(() => compInputRef.current?.focus());
   }
 
+  // CHANGE 3: keyboard dismiss — blur on every key, re-focus after 50ms
+  // This causes iOS to lower keyboard momentarily then raise it back,
+  // preventing the stuck-keyboard-after-1-key bug.
   function handleTyping(e: React.ChangeEvent<HTMLInputElement>) {
     setMessageInput(e.target.value);
     if (!selectedFriend) return;
@@ -435,6 +570,13 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
     typingTimer.current = setTimeout(() => {
       setIsTyping(false); getSocket()?.emit("typing:stop", { receiverId: selectedFriend.id });
     }, 2000);
+  }
+
+  // CHANGE 3: on every keydown, briefly blur (hides keyboard) then re-focus
+  function handleKeyDown() {
+    if (!compInputRef.current) return;
+    compInputRef.current.blur();
+    setTimeout(() => compInputRef.current?.focus(), 30);
   }
 
   function handleImgUpload(e: React.ChangeEvent<HTMLInputElement>) {
@@ -460,23 +602,8 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
         }
       />
       <div style={S.scrollArea}>
-        {/* Hero */}
-        <div style={S.heroCard}>
-          <div style={S.heroGlow} />
-          <div style={{ position: "relative", zIndex: 1 }}>
-            <div style={S.heroBadge}><span style={S.heroDot} /> LIVE RANDOM CHAT</div>
-            <h1 style={S.heroTitle}>
-              Talk to someone new<br />
-              <span style={S.heroAccent}>from campus</span>
-            </h1>
-            <p style={{ fontSize: "0.82rem", color: "rgba(255,255,255,0.4)", margin: "0 0 20px" }}>
-              Find your next campus connection instantly.
-            </p>
-            <button style={S.heroCta} onClick={() => navigate("/app/random")}>
-              <Flame size={15} /> Start Random Chat
-            </button>
-          </div>
-        </div>
+        {/* CHANGE 1: GSAP animated hero — no photo */}
+        <GsapHero onStartRandom={() => navigate("/app/random")} />
 
         {/* Suggested */}
         <div style={S.section}>
@@ -605,7 +732,6 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
           }
         />
 
-        {/* Typing sub-header */}
         {partnerTyping && (
           <div style={{
             padding: "5px 16px", fontSize: "0.72rem", color: "rgba(255,255,255,0.4)",
@@ -616,7 +742,7 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
           </div>
         )}
 
-        {/* Messages — isolated scroll */}
+        {/* Messages */}
         <div style={{
           flex: 1, overflowY: "auto", overflowX: "hidden",
           padding: "12px 14px", display: "flex", flexDirection: "column",
@@ -642,8 +768,7 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
                 {[0, 200, 400].map((delay, i) => (
                   <span key={i} style={{
                     width: 5, height: 5, borderRadius: "50%",
-                    background: "rgba(255,255,255,0.5)",
-                    display: "inline-block",
+                    background: "rgba(255,255,255,0.5)", display: "inline-block",
                     animation: `tdot 1.2s ${delay}ms infinite`,
                   }} />
                 ))}
@@ -672,7 +797,7 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
           </div>
         )}
 
-        {/* Sticky Composer — FIX 3: ref + enterKeyHint + autoComplete + font-size 16px */}
+        {/* Sticky Composer — CHANGE 3: onKeyDown handler added */}
         <form onSubmit={handleSend} style={{
           display: "flex", alignItems: "center", gap: 8,
           padding: "10px 14px",
@@ -684,10 +809,8 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
           boxSizing: "border-box", width: "100%",
         }}>
           <input
-            type="file"
-            accept="image/*"
-            style={{ display: "none" }}
-            ref={fileRef}
+            type="file" accept="image/*"
+            style={{ display: "none" }} ref={fileRef}
             onChange={handleImgUpload}
           />
           <button type="button" onClick={() => fileRef.current?.click()} style={S.compIcon}>
@@ -695,18 +818,15 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
           </button>
           <input
             ref={compInputRef}
-            style={{
-              ...S.compInput,
-              // FIX 3: 16px minimum prevents iOS auto-zoom which causes layout shift + focus loss
-              fontSize: "16px",
-            }}
+            style={{ ...S.compInput, fontSize: "16px" }}
             placeholder="Message…"
             value={messageInput}
             onChange={handleTyping}
+            // CHANGE 3: blur+refocus on every keydown to dismiss keyboard between strokes
+            onKeyDown={handleKeyDown}
             autoComplete="off"
             autoCorrect="off"
             spellCheck={false}
-            // FIX 3: tells mobile keyboard to show a send key
             enterKeyHint="send"
           />
           <button
@@ -728,42 +848,29 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
     );
   };
 
-  // FIX 2: DiscoverScreen now has name search instead of course/year filters
   const DiscoverScreen = () => (
     <div style={S.screen}>
       <ScreenHeader title="Discover" onBack={() => setActiveTab("home")} />
       <div style={{ padding: "12px 16px", flexShrink: 0, borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
-        {/* Name search bar */}
         <div style={{ position: "relative" }}>
           <Search size={14} style={{
             position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)",
             color: "rgba(255,255,255,0.35)", pointerEvents: "none",
           }} />
           <input
-            style={{
-              ...S.filterInput,
-              paddingLeft: 34,
-              // FIX 3: 16px prevents iOS zoom on focus
-              fontSize: "16px",
-            }}
+            style={{ ...S.filterInput, paddingLeft: 34, fontSize: "16px" }}
             placeholder="Search by name…"
             value={nameFilter}
             onChange={(e) => setNameFilter(e.target.value)}
-            autoComplete="off"
-            autoCorrect="off"
-            spellCheck={false}
+            autoComplete="off" autoCorrect="off" spellCheck={false}
           />
-          {/* Clear button */}
           {nameFilter && (
-            <button
-              onClick={() => setNameFilter("")}
-              style={{
-                position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)",
-                background: "rgba(255,255,255,0.1)", border: "none", borderRadius: "50%",
-                width: 20, height: 20, cursor: "pointer", color: "rgba(255,255,255,0.5)",
-                display: "flex", alignItems: "center", justifyContent: "center", padding: 0,
-              }}
-            >
+            <button onClick={() => setNameFilter("")} style={{
+              position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)",
+              background: "rgba(255,255,255,0.1)", border: "none", borderRadius: "50%",
+              width: 20, height: 20, cursor: "pointer", color: "rgba(255,255,255,0.5)",
+              display: "flex", alignItems: "center", justifyContent: "center", padding: 0,
+            }}>
               <X size={11} />
             </button>
           )}
@@ -799,7 +906,6 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
     <div style={S.screen}>
       <ScreenHeader title="Profile" onBack={() => setActiveTab("home")} />
       <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden", padding: 16, minHeight: 0 }}>
-        {/* Hero */}
         <div style={{
           background: "linear-gradient(135deg, #0d2137, #0a1628)",
           border: "1px solid rgba(255,184,74,0.15)",
@@ -810,7 +916,6 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
           <Avatar name={user.fullName} size={74} />
           <div>
             <div style={{ fontSize: "1.1rem", fontWeight: 800, color: "#fff" }}>{user.fullName}</div>
-            {/* FIX 1: show course/year if available, otherwise don't show email */}
             {(user as any).course && (user as any).year && (
               <div style={{ fontSize: "0.78rem", color: "rgba(255,255,255,0.4)", marginTop: 3 }}>
                 {(user as any).course} · {(user as any).year} Year
@@ -841,7 +946,6 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
           }}>Logout</button>
         </div>
 
-        {/* Friend Requests */}
         {requests.length > 0 && (
           <div style={{ ...S.panel, marginBottom: 12 }}>
             <div style={S.panelHead}>
@@ -853,7 +957,6 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
                 <Avatar name={req.sender.fullName} size={36} gradient="135deg, #4ee1b7, #1b8a6b" />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: "0.84rem", fontWeight: 700, color: "#fff" }}>{req.sender.fullName}</div>
-                  {/* FIX 1: show course/year for request sender, not email */}
                   <div style={{ fontSize: "0.72rem", color: "rgba(255,255,255,0.38)" }}>
                     {(req.sender as any).course && (req.sender as any).year
                       ? `${(req.sender as any).course} · ${(req.sender as any).year} Year`
@@ -870,7 +973,6 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
           </div>
         )}
 
-        {/* Notifications */}
         {notifications.length > 0 && (
           <div style={{ ...S.panel, marginBottom: 12 }}>
             <div style={S.panelHead}>
@@ -896,7 +998,6 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
           </div>
         )}
 
-        {/* Blocked */}
         <div style={S.panel}>
           <div style={S.panelHead}>
             <span style={S.panelTitle}>Blocked Users</span>
@@ -917,7 +1018,6 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
                   }}><ShieldBan size={14} /></div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: "0.83rem", fontWeight: 700, color: "#fff" }}>{e.user.fullName}</div>
-                    {/* FIX 1: show reason only, no email */}
                     <div style={{ fontSize: "0.72rem", color: "rgba(255,255,255,0.35)" }}>
                       {e.reason ? `Reason: ${e.reason}` : "Blocked user"}
                     </div>
@@ -963,22 +1063,17 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
         }
         *{box-sizing:border-box}
         ::-webkit-scrollbar{width:0;background:transparent}
-        /* FIX 3: prevent body scroll which causes keyboard-open layout shift */
         html,body{height:100%;overflow:hidden;position:fixed;width:100%;}
-        /* FIX 3: 16px minimum on ALL inputs prevents iOS auto-zoom -> focus loss */
         input,textarea,select{font-size:16px !important;}
       `}</style>
 
-      {/* ── ROOT: fixed, no overflow ── */}
       <div style={{
         position: "fixed", inset: 0,
         display: "flex", flexDirection: "column",
         background: "#0a0f1c", color: "#e8eaf0",
         fontFamily: "'Segoe UI', system-ui, sans-serif",
-        overflow: "hidden",
-        maxWidth: "100%",
+        overflow: "hidden", maxWidth: "100%",
       }}>
-        {/* Screen area */}
         <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column", minHeight: 0 }}>
           {activeTab === "home"     && <HomeScreen />}
           {activeTab === "discover" && <DiscoverScreen />}
@@ -987,7 +1082,6 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
           {activeTab === "profile"  && <ProfileScreen />}
         </div>
 
-        {/* Bottom nav — hidden when in full-screen chat */}
         {activeTab !== "chat" && (
           <nav style={{
             display: "flex",
@@ -1082,18 +1176,6 @@ const S = {
     flex: 1, overflowY: "auto" as const, overflowX: "hidden" as const,
     padding: 16, minHeight: 0,
   },
-  heroCard: {
-    position: "relative" as const, overflow: "hidden" as const,
-    background: "linear-gradient(135deg, #0d2137 0%, #0a1628 55%, #111a2e 100%)",
-    border: "1px solid rgba(255,184,74,0.18)", borderRadius: 20,
-    padding: "28px 22px", marginBottom: 22,
-  },
-  heroGlow: {
-    position: "absolute" as const, top: -60, right: -60, width: 220, height: 220,
-    borderRadius: "50%",
-    background: "radial-gradient(circle, rgba(255,184,74,0.15) 0%, transparent 70%)",
-    pointerEvents: "none" as const,
-  },
   heroBadge: {
     display: "inline-flex", alignItems: "center", gap: 7,
     background: "rgba(255,184,74,0.1)", border: "1px solid rgba(255,184,74,0.28)",
@@ -1107,11 +1189,7 @@ const S = {
   },
   heroTitle: {
     fontSize: "1.5rem", fontWeight: 800, lineHeight: 1.22,
-    color: "#fff", margin: "0 0 10px", letterSpacing: "-0.02em",
-  },
-  heroAccent: {
-    background: "linear-gradient(90deg, #ffb84a, #ff8c42)",
-    WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text",
+    color: "#fff", margin: "0", letterSpacing: "-0.02em",
   },
   heroCta: {
     display: "inline-flex", alignItems: "center", gap: 8,
