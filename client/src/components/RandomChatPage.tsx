@@ -417,6 +417,14 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
         .rcp-dot.live { background: #4ade80; box-shadow: 0 0 8px #4ade8080; }
         .rcp-dot.searching { background: #e5ff00; animation: rcpPulse 1.2s ease-in-out infinite; }
         @keyframes rcpPulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.4;transform:scale(0.75)} }
+        .rcp-back-btn {
+          width: 34px; height: 34px; border-radius: 10px;
+          background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1);
+          display: flex; align-items: center; justify-content: center;
+          color: rgba(255,255,255,0.6); cursor: pointer; transition: background 0.15s, color 0.15s;
+          flex-shrink: 0;
+        }
+        .rcp-back-btn:hover { background: rgba(255,255,255,0.1); color: #fff; }
         .rcp-flag-btn {
           width: 34px; height: 34px; border-radius: 10px;
           background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.2);
@@ -848,8 +856,15 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
 
         {/* TOP BAR */}
         <header className="rcp-topbar">
-          <div className="rcp-wordmark" onClick={() => navigate("/app")}>
-            LPU TV <span className="rcp-badge">Beta</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <button className="rcp-back-btn" onClick={() => navigate(-1)} title="Go back">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M19 12H5M12 5l-7 7 7 7"/>
+              </svg>
+            </button>
+            <div className="rcp-wordmark" onClick={() => navigate("/app")}>
+              LPU TV <span className="rcp-badge">Beta</span>
+            </div>
           </div>
           <div className="rcp-topbar-right">
             <div className="rcp-status-chip">
