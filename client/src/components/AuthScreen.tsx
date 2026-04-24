@@ -201,11 +201,15 @@ export function AuthScreen({ onAuthenticated, isLoggedIn }: AuthScreenProps) {
           position: relative;
         }
 
-        /* Single back button — absolute top-left on desktop, aligned with navbar */
+        /*
+          FIX 3: Back button aligned to the grid container's left edge.
+          max() ensures it never goes closer than 28px on viewports
+          narrower than 1200px, and slides right to match grid on wider ones.
+        */
         .back-link {
           position: absolute;
           top: 20px;
-          left: 28px;
+          left: max(28px, calc((100% - 1200px) / 2 + 28px));
           z-index: 10;
           display: inline-flex;
           align-items: center;
@@ -476,18 +480,41 @@ export function AuthScreen({ onAuthenticated, isLoggedIn }: AuthScreenProps) {
           color: rgba(239,239,239,0.55);
           letter-spacing: 0.2px;
         }
+
+        /*
+          FIX 2: Fixed height input container — no more vertical stretch.
+          48px is the compact, balanced target height.
+        */
         .input-wrap {
           display: flex;
           align-items: center;
+          height: 44px;
           background: var(--bg3);
           border: 1px solid var(--line);
           border-radius: 10px;
           padding: 0 12px;
           gap: 9px;
-          transition: border-color 0.15s;
+          transition: border-color 0.15s, box-shadow 0.15s;
+          overflow: hidden;
         }
-        .input-wrap:focus-within { border-color: rgba(212,242,68,0.35); }
+
+        /*
+          FIX 1: Clean, tight focus ring — no oval glow distortion.
+          border-color sharpens the border; box-shadow adds a precise
+          2px offset ring without affecting layout.
+        */
+        .input-wrap:focus-within {
+          border-color: rgba(212,242,68,0.5);
+          box-shadow: 0 0 0 2px rgba(212,242,68,0.12);
+        }
+
         .input-wrap svg.ico { color: rgba(239,239,239,0.3); flex-shrink: 0; }
+
+        /*
+          FIX 2 (continued): Input fills the container height exactly.
+          padding: 0 removes browser default vertical padding that caused
+          the stretched oval appearance.
+        */
         .input-wrap input {
           flex: 1;
           background: none;
@@ -496,7 +523,8 @@ export function AuthScreen({ onAuthenticated, isLoggedIn }: AuthScreenProps) {
           font-family: var(--fb);
           font-size: 14px;
           color: var(--txt);
-          padding: 12px 0;
+          padding: 0;
+          height: 100%;
           min-width: 0;
         }
         .input-wrap input::placeholder { color: rgba(239,239,239,0.25); }
@@ -648,9 +676,16 @@ export function AuthScreen({ onAuthenticated, isLoggedIn }: AuthScreenProps) {
             font-size: 14px;
           }
 
+          /* Mobile keeps its own input sizing — untouched */
           .input-wrap input {
             padding: 13px 0;
             font-size: 15px;
+          }
+
+          /* Mobile input wrap height — untouched (auto from padding) */
+          .input-wrap {
+            height: auto;
+            overflow: visible;
           }
 
           .submit-btn {
@@ -698,7 +733,7 @@ export function AuthScreen({ onAuthenticated, isLoggedIn }: AuthScreenProps) {
         <Header isLoggedIn={isLoggedIn} onLogout={() => {}} />
 
         <main className="auth-main">
-          {/* Desktop-only back button — absolute top-left, outside both columns */}
+          {/* Desktop-only back button — aligned to grid container left edge */}
           <button className="back-link ar" onClick={() => navigate("/")}>
             <ArrowLeft size={15} /> Back to Home
           </button>
