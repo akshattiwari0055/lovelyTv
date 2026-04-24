@@ -1,363 +1,349 @@
-/**
- * Dashboard.tsx — Redesigned Mobile-First Campus Connect UI
- *
- * FIXES APPLIED:
- * 1. Badge logic — bottom nav shows count of USERS with unread msgs (not total msg count)
- * 2. Chat list badges — shows raw message count per user (WhatsApp style: 3, 1, etc.)
- * 3. Keyboard/focus bug — removed the blur+refocus handleKeyDown hack entirely
- *    Input stays focused; no more keyboard closing on every keystroke.
- */
-
-import {
-  FormEvent, useEffect, useMemo, useRef, useState,
-} from "react";
+import type { CSSProperties, ChangeEvent, FormEvent, ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  ArrowLeft, Camera, Check, CheckCheck, Flame, Home, ImagePlus,
-  Lock, MessageCircle, Phone, Search, Send, ShieldBan,
-  UserCircle2, UserPlus, Users, X,
+  ArrowLeft,
+  Camera,
+  Check,
+  CheckCheck,
+  Crown,
+  Flame,
+  GraduationCap,
+  Home,
+  ImagePlus,
+  Info,
+  Lock,
+  Mail,
+  MessageCircle,
+  Phone,
+  Search,
+  Send,
+  ShieldBan,
+  Sparkles,
+  UserPlus,
+  Users,
+  X,
 } from "lucide-react";
 import { api } from "../lib/api";
 import { connectSocket, disconnectSocket, getSocket } from "../lib/socket";
 import {
-  AppNotification, BlockedUserEntry, FriendRequest, Message, User,
+  AppNotification,
+  BlockedUserEntry,
+  FriendRequest,
+  Message,
+  User,
 } from "../types";
 import { VideoRoom } from "./VideoRoom";
 
-// ─── Types ────────────────────────────────────────────────────────────────────
 type DashboardProps = { token: string; user: User; onLogout: () => void };
 type AppTab = "home" | "discover" | "messages" | "chat" | "profile";
+type FilterTag = "All" | "Architecture" | "Design" | "Technology";
 
 function getRoomId(a: string, b: string) {
   const [x, y] = [a, b].sort();
   return `call-${x}-${y}`;
 }
 
-const fmt = (v: string) =>
-  new Date(v).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+function getInitials(name: string) {
+  return name
+    .split(" ")
+    .map((part) => part[0] ?? "")
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+}
 
-const initials = (name: string) => name[0]?.toUpperCase() ?? "?";
+function formatTime(value: string) {
+  return new Date(value).toLocaleTimeString([], {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
 
-// ─── ScreenHeader ─────────────────────────────────────────────────────────────
-function ScreenHeader({
-  title, onBack, right,
-}: { title: string; onBack?: () => void; right?: React.ReactNode }) {
+function getSubtitle(user: User) {
+  if (user.course && user.year) return `${user.course} · ${user.year}`;
+  if (user.interests) return user.interests;
+  return "Verified campus member";
+}
+
+function getFilter(user: User): FilterTag {
+  const source = `${user.course ?? ""} ${user.interests ?? ""}`.toLowerCase();
+  if (source.includes("arch")) return "Architecture";
+  if (source.includes("design") || source.includes("art")) return "Design";
+  if (
+    source.includes("tech") ||
+    source.includes("computer") ||
+    source.includes("software") ||
+    source.includes("coding")
+  ) {
+    return "Technology";
+  }
+  return "All";
+}
+
+function getAvatarGradient(seed: string) {
+  const gradients = [
+    "linear-gradient(135deg, #2a2235 0%, #5c3fb6 100%)",
+    "linear-gradient(135deg, #23262f 0%, #46526d 100%)",
+    "linear-gradient(135deg, #2f2529 0%, #75516e 100%)",
+    "linear-gradient(135deg, #1e2632 0%, #2f6ca8 100%)",
+  ];
+  return gradients[seed.length % gradients.length];
+}
+
+function AppLogo() {
   return (
-    <header style={{
-      display: "flex", alignItems: "center", justifyContent: "space-between",
-      padding: "0 16px", height: 56, flexShrink: 0,
-      background: "rgba(10,14,23,0.97)",
-      borderBottom: "1px solid rgba(255,255,255,0.07)",
-      backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)",
-      width: "100%", boxSizing: "border-box",
-    }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0, flex: 1 }}>
-        {onBack && (
-          <button onClick={onBack} style={S.iconBtn}>
-            <ArrowLeft size={17} />
-          </button>
-        )}
-        <span style={{
-          fontSize: "0.96rem", fontWeight: 700, color: "#fff",
-          overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-        }}>{title}</span>
+    <div style={styles.logoWrap}>
+      <span style={styles.logoText}>CAMPUS</span>
+      <span style={styles.logoDot}>•</span>
+    </div>
+  );
+}
+
+function Avatar({
+  name,
+  size = 48,
+  online = false,
+}: {
+  name: string;
+  size?: number;
+  online?: boolean;
+}) {
+  return (
+    <div style={{ position: "relative", width: size, height: size, flexShrink: 0 }}>
+      <div
+        style={{
+          width: size,
+          height: size,
+          borderRadius: "50%",
+          background: getAvatarGradient(name),
+          display: "grid",
+          placeItems: "center",
+          fontWeight: 800,
+          fontSize: size * 0.34,
+          color: "#f6f3ff",
+          border: "1px solid rgba(255,255,255,0.08)",
+        }}
+      >
+        {getInitials(name)}
       </div>
-      {right && <div style={{ display: "flex", gap: 8, flexShrink: 0, marginLeft: 8 }}>{right}</div>}
+      {online && <span style={styles.onlineDot} />}
+    </div>
+  );
+}
+
+function SidebarNav({
+  activeTab,
+  setActiveTab,
+  usersWithUnread,
+}: {
+  activeTab: AppTab;
+  setActiveTab: (tab: AppTab) => void;
+  usersWithUnread: number;
+}) {
+  const items: { id: Exclude<AppTab, "chat">; label: string; icon: ReactNode; badge?: number }[] = [
+    { id: "home", label: "Club", icon: <Home size={18} /> },
+    { id: "discover", label: "Explore", icon: <Search size={18} /> },
+    { id: "messages", label: "Inbox", icon: <Mail size={18} />, badge: usersWithUnread },
+    { id: "profile", label: "Elite", icon: <Crown size={18} /> },
+  ];
+
+  return (
+    <>
+      <aside className="dashboard-desktop-nav" style={styles.desktopSidebar}>
+        <div>
+          <AppLogo />
+          <div style={styles.desktopNavGroup}>
+            {items.map((item) => {
+              const active = activeTab === item.id || (item.id === "messages" && activeTab === "chat");
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => setActiveTab(item.id)}
+                  style={{
+                    ...styles.desktopNavItem,
+                    ...(active ? styles.desktopNavItemActive : {}),
+                  }}
+                >
+                  <span style={styles.desktopNavIcon}>{item.icon}</span>
+                  <span>{item.label}</span>
+                  {item.badge && item.badge > 0 ? (
+                    <span style={styles.desktopNavBadge}>
+                      {item.badge > 99 ? "99+" : item.badge}
+                    </span>
+                  ) : null}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div style={styles.desktopSidebarFoot}>
+          <div style={styles.smallMeta}>Private student network</div>
+          <div style={styles.smallMetaMuted}>Built for spontaneous, verified campus conversation.</div>
+        </div>
+      </aside>
+
+      <nav className="dashboard-mobile-nav" style={styles.mobileNav}>
+        {items.map((item) => {
+          const active = activeTab === item.id || (item.id === "messages" && activeTab === "chat");
+          return (
+            <button
+              key={item.id}
+              onClick={() => setActiveTab(item.id)}
+              style={{
+                ...styles.mobileNavItem,
+                color: active ? "#b58cff" : "rgba(255,255,255,0.34)",
+              }}
+            >
+              <span
+                style={{
+                  ...styles.mobileNavIcon,
+                  ...(active ? styles.mobileNavIconActive : {}),
+                }}
+              >
+                {item.icon}
+              </span>
+              <span>{item.label}</span>
+              {item.badge && item.badge > 0 ? (
+                <span style={styles.mobileNavBadge}>{item.badge > 99 ? "99+" : item.badge}</span>
+              ) : null}
+            </button>
+          );
+        })}
+      </nav>
+    </>
+  );
+}
+
+function TopBar({
+  user,
+  title,
+  subtitle,
+  onProfile,
+  onBack,
+  right,
+}: {
+  user: User;
+  title?: string;
+  subtitle?: string;
+  onProfile: () => void;
+  onBack?: () => void;
+  right?: ReactNode;
+}) {
+  return (
+    <header style={styles.topBar}>
+      <div style={{ display: "flex", alignItems: "center", gap: 14, minWidth: 0 }}>
+        {onBack ? (
+          <button onClick={onBack} style={styles.iconButton}>
+            <ArrowLeft size={16} />
+          </button>
+        ) : (
+          <div className="mobile-logo-only">
+            <AppLogo />
+          </div>
+        )}
+        {title ? (
+          <div style={{ minWidth: 0 }}>
+            <div style={styles.topTitle}>{title}</div>
+            {subtitle && <div style={styles.topSubtitle}>{subtitle}</div>}
+          </div>
+        ) : null}
+      </div>
+
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        {right}
+        <button onClick={onProfile} style={styles.profileChip}>
+          {getInitials(user.fullName)}
+        </button>
+      </div>
     </header>
   );
 }
 
-// ─── Avatar ───────────────────────────────────────────────────────────────────
-function Avatar({ name, size = 40, gradient = "135deg, #ffb84a, #ff8c42" }:
-  { name: string; size?: number; gradient?: string }) {
+function StatBox({ value, label, accent }: { value: string | number; label: string; accent?: boolean }) {
   return (
-    <div style={{
-      width: size, height: size, borderRadius: "50%", flexShrink: 0,
-      background: `linear-gradient(${gradient})`,
-      display: "flex", alignItems: "center", justifyContent: "center",
-      fontSize: size * 0.38, fontWeight: 800, color: "#1a0e00",
-    }}>{initials(name)}</div>
+    <div style={styles.statBox}>
+      <strong style={styles.statValue}>{value}</strong>
+      <span style={{ ...styles.statLabel, color: accent ? "#b58cff" : "rgba(255,255,255,0.42)" }}>
+        {label}
+      </span>
+    </div>
   );
 }
 
-// ─── ChatItem ─────────────────────────────────────────────────────────────────
-// FIX 2: Chat list shows raw unread count per user (WhatsApp style: 3, 1, etc.)
-// No "+N" prefix. Blank when 0 (reserved space kept for layout stability).
-function ChatItem({ friend, unread, lastMsg, active, onClick }:
-  { friend: User; unread: number; lastMsg?: string; active?: boolean; onClick: () => void }) {
+function MemberCard({
+  user,
+  action,
+  compact = false,
+}: {
+  user: User;
+  action?: ReactNode;
+  compact?: boolean;
+}) {
   return (
-    <button onClick={onClick} style={{
-      display: "flex", alignItems: "center", gap: 12,
-      padding: "13px 16px", width: "100%", textAlign: "left",
-      background: active ? "rgba(255,184,74,0.07)" : "transparent",
-      border: "none", borderBottom: "1px solid rgba(255,255,255,0.05)",
-      cursor: "pointer", boxSizing: "border-box", minWidth: 0,
-      transition: "background 0.15s",
-    }}>
-      <div style={{ position: "relative", flexShrink: 0 }}>
-        <Avatar name={friend.fullName} gradient="135deg, #4ee1b7, #1b8a6b" />
-        {/* Green dot on avatar only when there are unread messages */}
-        {unread > 0 && (
-          <span style={{
-            position: "absolute", top: -2, right: -2,
-            background: "#25d366", width: 10, height: 10,
-            borderRadius: "50%", border: "2px solid #0a0f1c",
-          }} />
-        )}
-      </div>
+    <article
+      style={{
+        ...styles.memberCard,
+        ...(compact ? styles.memberCardCompact : {}),
+      }}
+    >
+      <Avatar name={user.fullName} size={compact ? 44 : 50} />
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{
-          fontSize: "0.88rem", fontWeight: unread > 0 ? 700 : 600,
-          color: "#fff", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-        }}>{friend.fullName}</div>
-        <div style={{
-          fontSize: "0.74rem", marginTop: 2,
-          color: unread > 0 ? "rgba(255,184,74,0.9)" : "rgba(255,255,255,0.38)",
-          fontWeight: unread > 0 ? 600 : 400,
-          overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-        }}>{lastMsg ?? (friend.interests || "Tap to chat")}</div>
+        <div style={styles.memberName}>{user.fullName}</div>
+        <div style={styles.memberSubtitle}>{getSubtitle(user)}</div>
       </div>
-
-      {/*
-        FIX 2: WhatsApp-style badge — shows raw count (3, 12, 99+).
-        Space is always reserved so layout doesn't shift when badge appears/disappears.
-      */}
-      <div style={{
-        minWidth: 36, height: 22,
-        display: "flex", alignItems: "center", justifyContent: "center",
-        flexShrink: 0,
-      }}>
-        {unread > 0 && (
-          <span style={{
-            background: "#25d366", color: "#fff",
-            fontSize: "0.65rem", fontWeight: 800,
-            padding: "3px 7px", borderRadius: 100,
-            whiteSpace: "nowrap", minWidth: 20, textAlign: "center",
-          }}>
-            {/* Raw count, capped at 99+ — same as WhatsApp / Telegram */}
-            {unread > 99 ? "99+" : unread}
-          </span>
-        )}
-      </div>
-    </button>
-  );
-}
-
-// ─── UserCard ─────────────────────────────────────────────────────────────────
-function UserCard({ user: u, onAdd }: { user: User; onAdd: () => void }) {
-  const [sent, setSent] = useState(false);
-  return (
-    <article style={{
-      background: "rgba(255,255,255,0.04)",
-      border: "1px solid rgba(255,255,255,0.08)",
-      borderRadius: 16, padding: 16, boxSizing: "border-box",
-      display: "flex", alignItems: "center", gap: 13,
-    }}>
-      <Avatar name={u.fullName} size={46} gradient="135deg, #a78bfa, #7c3aed" />
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: "0.87rem", fontWeight: 700, color: "#fff", marginBottom: 2 }}>
-          {u.fullName}
-        </div>
-        <div style={{ fontSize: "0.73rem", color: "rgba(255,255,255,0.4)", marginBottom: 3 }}>
-          {u.course && u.year
-            ? `${u.course} · ${u.year} Year`
-            : u.interests
-              ? u.interests
-              : "Campus student"}
-        </div>
-        {u.mutualConnections != null && u.mutualConnections > 0 && (
-          <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: "0.71rem", color: "#ffb84a" }}>
-            <Users size={10} />{u.mutualConnections} mutual
-          </div>
-        )}
-      </div>
-      <button onClick={() => { setSent(true); onAdd(); }} disabled={sent} style={{
-        background: sent ? "rgba(255,255,255,0.04)" : "rgba(255,184,74,0.12)",
-        border: `1px solid ${sent ? "rgba(255,255,255,0.08)" : "rgba(255,184,74,0.28)"}`,
-        borderRadius: 10, padding: "8px 14px",
-        fontSize: "0.76rem", fontWeight: 600,
-        color: sent ? "rgba(255,255,255,0.3)" : "#ffb84a",
-        cursor: sent ? "default" : "pointer", flexShrink: 0,
-        display: "flex", alignItems: "center", gap: 5,
-      }}>
-        {sent ? <Check size={13} /> : <UserPlus size={13} />}
-        {sent ? "Sent" : "Add"}
-      </button>
+      {action}
     </article>
   );
 }
 
-// ─── MessageBubble ────────────────────────────────────────────────────────────
-function MessageBubble({ msg, mine }: { msg: Message; mine: boolean }) {
+function MessageBubble({ message, mine }: { message: Message; mine: boolean }) {
   return (
-    <div style={{ display: "flex", justifyContent: mine ? "flex-end" : "flex-start", padding: "2px 0" }}>
-      <div style={{
-        maxWidth: "72%", padding: "9px 13px",
-        borderRadius: mine ? "18px 18px 4px 18px" : "18px 18px 18px 4px",
-        background: mine ? "linear-gradient(135deg, #ffb84a, #ff8c42)" : "rgba(255,255,255,0.08)",
-        border: mine ? "none" : "1px solid rgba(255,255,255,0.08)",
-        color: mine ? "#1a0e00" : "#dde1ec",
-        fontSize: "0.86rem", lineHeight: 1.5, wordBreak: "break-word", boxSizing: "border-box",
-      }}>
-        {msg.imageUrl && (
-          <img
-            src={msg.imageUrl}
-            alt="img"
-            style={{
-              width: "100%",
-              maxWidth: "min(260px, 70vw)",
-              height: "auto",
-              borderRadius: 8,
-              marginBottom: 6,
-              display: "block",
-            }}
-          />
-        )}
-        {msg.content && <span>{msg.content}</span>}
-        <div style={{
-          display: "flex", alignItems: "center", gap: 4,
-          justifyContent: "flex-end", marginTop: 4,
-        }}>
-          <small style={{ fontSize: "0.62rem", opacity: 0.55 }}>{fmt(msg.createdAt)}</small>
-          {mine && (msg.isRead
-            ? <CheckCheck size={11} color="#1a0e00" />
-            : <Check size={11} color="rgba(0,0,0,0.4)" />
-          )}
+    <div
+      style={{
+        display: "flex",
+        justifyContent: mine ? "flex-end" : "flex-start",
+      }}
+    >
+      <div
+        style={{
+          ...styles.chatBubble,
+          ...(mine ? styles.chatBubbleMine : styles.chatBubbleOther),
+        }}
+      >
+        {message.imageUrl ? (
+          <img src={message.imageUrl} alt="attachment" style={styles.chatImage} />
+        ) : null}
+        {message.content ? <div style={styles.chatText}>{message.content}</div> : null}
+        <div style={styles.chatMeta}>
+          <span>{formatTime(message.createdAt)}</span>
+          {mine ? (message.isRead ? <CheckCheck size={11} /> : <Check size={11} />) : null}
         </div>
       </div>
     </div>
   );
 }
 
-// ─── GSAP Hero ────────────────────────────────────────────────────────────────
-function GsapHero({ onStartRandom }: { onStartRandom: () => void }) {
-  const heroRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const loadGsap = () =>
-      new Promise<void>((resolve) => {
-        if ((window as any).gsap) { resolve(); return; }
-        const s = document.createElement("script");
-        s.src = "https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js";
-        s.onload = () => resolve();
-        document.head.appendChild(s);
-      });
-
-    loadGsap().then(() => {
-      const gsap = (window as any).gsap;
-      if (!heroRef.current) return;
-
-      const tl = gsap.timeline({ defaults: { ease: "power3.out" } });
-
-      tl.fromTo(".gsap-badge", { opacity: 0, y: -16, scale: 0.85 }, { opacity: 1, y: 0, scale: 1, duration: 0.5 })
-        .fromTo(".gsap-line1", { opacity: 0, y: 40, skewY: 4 }, { opacity: 1, y: 0, skewY: 0, duration: 0.65 }, "-=0.2")
-        .fromTo(".gsap-line2", { opacity: 0, y: 40, skewY: 4 }, { opacity: 1, y: 0, skewY: 0, duration: 0.65 }, "-=0.45")
-        .fromTo(".gsap-desc", { opacity: 0, y: 22 }, { opacity: 1, y: 0, duration: 0.55 }, "-=0.3")
-        .fromTo(".gsap-cta", { opacity: 0, scale: 0.88, y: 12 }, { opacity: 1, scale: 1, y: 0, duration: 0.5 }, "-=0.2");
-
-      gsap.utils.toArray(".gsap-particle").forEach((el: any, i: number) => {
-        gsap.to(el, {
-          y: `${-14 - i * 6}px`,
-          x: `${(i % 2 === 0 ? 1 : -1) * (8 + i * 3)}px`,
-          duration: 2.2 + i * 0.4,
-          repeat: -1,
-          yoyo: true,
-          ease: "sine.inOut",
-          delay: i * 0.3,
-        });
-      });
-
-      gsap.to(".gsap-glow", {
-        opacity: 0.35,
-        scale: 1.18,
-        duration: 2.6,
-        repeat: -1,
-        yoyo: true,
-        ease: "sine.inOut",
-      });
-    });
-  }, []);
-
-  return (
-    <div ref={heroRef} style={{
-      position: "relative", overflow: "hidden",
-      background: "linear-gradient(135deg, #0d2137 0%, #0a1628 55%, #111a2e 100%)",
-      border: "1px solid rgba(255,184,74,0.18)", borderRadius: 20,
-      padding: "32px 22px 28px", marginBottom: 22,
-      minHeight: 220,
-    }}>
-      <div className="gsap-glow" style={{
-        position: "absolute", top: -70, right: -70, width: 260, height: 260,
-        borderRadius: "50%",
-        background: "radial-gradient(circle, rgba(255,184,74,0.22) 0%, transparent 70%)",
-        pointerEvents: "none", opacity: 0.2,
-      }} />
-
-      {[
-        { top: "18%", left: "72%", size: 5, color: "#ffb84a" },
-        { top: "62%", left: "82%", size: 3.5, color: "#ff8c42" },
-        { top: "30%", left: "88%", size: 4, color: "rgba(255,184,74,0.5)" },
-        { top: "75%", left: "65%", size: 2.5, color: "#fff" },
-      ].map((p, i) => (
-        <div key={i} className="gsap-particle" style={{
-          position: "absolute", top: p.top, left: p.left,
-          width: p.size, height: p.size, borderRadius: "50%",
-          background: p.color, pointerEvents: "none", opacity: 0.7,
-        }} />
-      ))}
-
-      <div style={{ position: "relative", zIndex: 1 }}>
-        <div className="gsap-badge" style={{ opacity: 0, ...S.heroBadge }}>
-          <span style={S.heroDot} /> LIVE CAMPUS CHAT
-        </div>
-
-        <div style={{ overflow: "hidden", marginBottom: 4 }}>
-          <h1 className="gsap-line1" style={{ ...S.heroTitle, opacity: 0, margin: "14px 0 0" }}>
-            Talk to someone
-          </h1>
-        </div>
-
-        <div style={{ overflow: "hidden", marginBottom: 10 }}>
-          <h1 className="gsap-line2" style={{
-            ...S.heroTitle, opacity: 0, margin: "0 0 0",
-            background: "linear-gradient(90deg, #ffb84a 0%, #ff8c42 50%, #ffda8a 100%)",
-            WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text",
-          }}>
-            new from campus ✦
-          </h1>
-        </div>
-
-        <p className="gsap-desc" style={{
-          opacity: 0, fontSize: "0.82rem",
-          color: "rgba(255,255,255,0.42)", margin: "0 0 22px",
-          lineHeight: 1.6, maxWidth: 260,
-        }}>
-          Discover real connections with students around you — instantly, anonymously, authentically.
-        </p>
-
-        <button className="gsap-cta" style={{ ...S.heroCta, opacity: 0 }} onClick={onStartRandom}>
-          <Flame size={15} /> Start Random Chat
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// ─── MAIN DASHBOARD ───────────────────────────────────────────────────────────
 export function Dashboard({ token, user, onLogout }: DashboardProps) {
   const navigate = useNavigate();
-  const fileRef = useRef<HTMLInputElement>(null);
   const typingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
-  const compInputRef = useRef<HTMLInputElement>(null);
+  const composerRef = useRef<HTMLInputElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   const [zegoConfig, setZegoConfig] = useState<{ appId: number; serverSecret: string } | null>(null);
   const [activeCall, setActiveCall] = useState<{ roomId: string; isVideo: boolean } | null>(null);
   const [incomingCall, setIncomingCall] = useState<{
-    callerId: string; callerName: string; isVideo: boolean; roomId: string;
+    callerId: string;
+    callerName: string;
+    isVideo: boolean;
+    roomId: string;
   } | null>(null);
   const [outgoingCall, setOutgoingCall] = useState<{
-    roomId: string; isVideo: boolean; receiverName: string;
+    roomId: string;
+    isVideo: boolean;
+    receiverName: string;
   } | null>(null);
 
   const [discoverUsers, setDiscoverUsers] = useState<User[]>([]);
@@ -368,20 +354,15 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
   const [selectedFriend, setSelectedFriend] = useState<User | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [lastMessages, setLastMessages] = useState<Record<string, string>>({});
-  // unreadCounts: { [userId]: number } — stores per-user unread MESSAGE count
   const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
-
   const [activeTab, setActiveTab] = useState<AppTab>("home");
   const [messageInput, setMessageInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [partnerTyping, setPartnerTyping] = useState(false);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
-  const [nameFilter, setNameFilter] = useState("");
+  const [search, setSearch] = useState("");
+  const [activeFilter, setActiveFilter] = useState<FilterTag>("All");
 
-  /**
-   * FIX 1 — Bottom nav badge = number of USERS who have unread messages (not total count).
-   * e.g. Raj sent 3, Akshat sent 1 → badge shows 2 (two users), not 4 (total messages).
-   */
   const usersWithUnread = useMemo(
     () => Object.values(unreadCounts).filter((count) => count > 0).length,
     [unreadCounts]
@@ -389,81 +370,117 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
 
   const conversationIsOpen = activeTab === "chat" && !!selectedFriend;
 
-  const filteredDiscoverUsers = useMemo(
-    () => nameFilter.trim()
-      ? discoverUsers.filter((u) =>
-          u.fullName.toLowerCase().includes(nameFilter.trim().toLowerCase()))
-      : discoverUsers,
-    [discoverUsers, nameFilter]
-  );
+  const filteredDiscoverUsers = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    return discoverUsers.filter((person) => {
+      const matchesText =
+        !query ||
+        person.fullName.toLowerCase().includes(query) ||
+        (person.course ?? "").toLowerCase().includes(query) ||
+        (person.year ?? "").toLowerCase().includes(query);
+      const matchesFilter = activeFilter === "All" || getFilter(person) === activeFilter;
+      return matchesText && matchesFilter;
+    });
+  }, [activeFilter, discoverUsers, search]);
 
-  // ─── Socket ──────────────────────────────────────────────────────────────
+  const curatedMembers = useMemo(() => filteredDiscoverUsers.slice(0, 6), [filteredDiscoverUsers]);
+
   useEffect(() => {
     const socket = connectSocket(token);
 
-    socket.on("message:new", (msg: Message) => {
-      setMessages((c) => (c.some((e) => e.id === msg.id) ? c : [...c, msg]));
-      const otherId = msg.senderId === user.id ? (msg as any).receiverId ?? "" : msg.senderId;
-      if (msg.content) setLastMessages((c) => ({ ...c, [otherId]: msg.content! }));
+    socket.on("message:new", (message: Message) => {
+      setMessages((current) => (current.some((item) => item.id === message.id) ? current : [...current, message]));
+      const otherId = message.senderId === user.id ? message.receiverId : message.senderId;
+      if (message.content) {
+        setLastMessages((current) => ({ ...current, [otherId]: message.content ?? "" }));
+      }
 
-      if (selectedFriend?.id === msg.senderId && conversationIsOpen && document.visibilityState === "visible") {
-        // Chat is open and visible — mark as read immediately
-        socket.emit("message:read", { messageIds: [msg.id], senderId: msg.senderId });
-        setUnreadCounts((c) => ({ ...c, [msg.senderId]: 0 }));
-      } else if (msg.senderId !== user.id) {
-        // Increment per-user unread message count (capped at 99 for display)
-        setUnreadCounts((c) => ({
-          ...c,
-          [msg.senderId]: Math.min((c[msg.senderId] ?? 0) + 1, 99),
+      if (
+        selectedFriend?.id === message.senderId &&
+        conversationIsOpen &&
+        document.visibilityState === "visible"
+      ) {
+        socket.emit("message:read", {
+          messageIds: [message.id],
+          senderId: message.senderId,
+        });
+        setUnreadCounts((current) => ({ ...current, [message.senderId]: 0 }));
+      } else if (message.senderId !== user.id) {
+        setUnreadCounts((current) => ({
+          ...current,
+          [message.senderId]: Math.min((current[message.senderId] ?? 0) + 1, 99),
         }));
       }
     });
 
     socket.on("message:read:update", ({ messageIds }: { messageIds: string[] }) => {
-      setMessages((c) => c.map((m) => messageIds.includes(m.id) ? { ...m, isRead: true } : m));
+      setMessages((current) =>
+        current.map((item) =>
+          messageIds.includes(item.id) ? { ...item, isRead: true } : item
+        )
+      );
     });
+
     socket.on("typing:started", ({ typerId }: { typerId: string }) => {
       if (selectedFriend?.id === typerId) setPartnerTyping(true);
     });
+
     socket.on("typing:stopped", ({ typerId }: { typerId: string }) => {
       if (selectedFriend?.id === typerId) setPartnerTyping(false);
     });
-    socket.on("call:incoming", (p: typeof incomingCall) => setIncomingCall(p));
+
+    socket.on("call:incoming", (payload: typeof incomingCall) => setIncomingCall(payload));
+
     socket.on("call:accepted", ({ roomId }: { roomId: string }) => {
-      setOutgoingCall((cur) => {
-        if (cur?.roomId === roomId) { setActiveCall({ roomId, isVideo: cur.isVideo }); return null; }
-        return cur;
+      setOutgoingCall((current) => {
+        if (current?.roomId === roomId) {
+          setActiveCall({ roomId, isVideo: current.isVideo });
+          return null;
+        }
+        return current;
       });
     });
+
     socket.on("call:declined", () => setOutgoingCall(null));
-    socket.on("notification:new", (n: AppNotification) => {
-      setNotifications((c) => [n, ...c].slice(0, 20));
+
+    socket.on("notification:new", (notice: AppNotification) => {
+      setNotifications((current) => [notice, ...current].slice(0, 20));
       void Promise.all([loadFriends(), loadRequests()]);
     });
 
     return () => {
-      ["message:new","message:read:update","typing:started","typing:stopped",
-       "call:incoming","call:accepted","call:declined","notification:new"]
-        .forEach((e) => socket.off(e));
+      [
+        "message:new",
+        "message:read:update",
+        "typing:started",
+        "typing:stopped",
+        "call:incoming",
+        "call:accepted",
+        "call:declined",
+        "notification:new",
+      ].forEach((event) => socket.off(event));
       disconnectSocket();
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, selectedFriend?.id, conversationIsOpen, user.id]);
+  }, [conversationIsOpen, selectedFriend?.id, token, user.id]);
 
   useEffect(() => {
     void Promise.all([
-      loadDiscover(), loadFriends(), loadRequests(), loadBlockedUsers(),
-      api.get("/zego-config").then((r) => setZegoConfig(r.data)),
+      loadDiscover(),
+      loadFriends(),
+      loadRequests(),
+      loadBlockedUsers(),
+      api.get("/zego-config").then((response) => setZegoConfig(response.data)),
     ]);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     if (!selectedFriend) return;
     getSocket()?.emit("join:conversation", { otherUserId: selectedFriend.id });
-    void loadConvo(selectedFriend.id, conversationIsOpen && document.visibilityState === "visible");
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedFriend?.id, conversationIsOpen]);
+    void loadConversation(
+      selectedFriend.id,
+      conversationIsOpen && document.visibilityState === "visible"
+    );
+  }, [conversationIsOpen, selectedFriend?.id]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -471,103 +488,129 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
 
   useEffect(() => {
     if (activeTab === "chat") {
-      requestAnimationFrame(() => compInputRef.current?.focus());
+      requestAnimationFrame(() => composerRef.current?.focus());
     }
   }, [activeTab, selectedFriend?.id]);
 
-  // ─── API ──────────────────────────────────────────────────────────────────
   async function loadDiscover() {
-    const r = await api.get("/discover");
-    setDiscoverUsers(r.data);
+    const response = await api.get("/discover");
+    setDiscoverUsers(response.data);
   }
-  async function loadFriends() { const r = await api.get("/friends"); setFriends(r.data); }
-  async function loadRequests() { const r = await api.get("/friend-requests"); setRequests(r.data); }
-  async function loadBlockedUsers() { const r = await api.get("/blocked-users"); setBlockedUsers(r.data); }
 
-  async function loadConvo(otherId: string, markRead = false) {
-    const r = await api.get(`/messages/${otherId}`);
-    const msgs: Message[] = r.data.messages;
-    setMessages(msgs);
-    const last = msgs[msgs.length - 1];
-    if (last?.content) setLastMessages((c) => ({ ...c, [otherId]: last.content! }));
-    const unread = msgs.filter((m) => m.senderId === otherId && !m.isRead).map((m) => m.id);
-    if (markRead && unread.length > 0) {
-      getSocket()?.emit("message:read", { messageIds: unread, senderId: otherId });
-      setMessages((c) => c.map((m) => unread.includes(m.id) ? { ...m, isRead: true } : m));
+  async function loadFriends() {
+    const response = await api.get("/friends");
+    setFriends(response.data);
+  }
+
+  async function loadRequests() {
+    const response = await api.get("/friend-requests");
+    setRequests(response.data);
+  }
+
+  async function loadBlockedUsers() {
+    const response = await api.get("/blocked-users");
+    setBlockedUsers(response.data);
+  }
+
+  async function loadConversation(otherId: string, markRead = false) {
+    const response = await api.get(`/messages/${otherId}`);
+    const nextMessages: Message[] = response.data.messages;
+    setMessages(nextMessages);
+
+    const last = nextMessages[nextMessages.length - 1];
+    if (last?.content) {
+      setLastMessages((current) => ({ ...current, [otherId]: last.content ?? "" }));
     }
-    // Always reset unread count for this user when opening their chat
-    setUnreadCounts((c) => ({ ...c, [otherId]: 0 }));
+
+    const unreadIds = nextMessages
+      .filter((item) => item.senderId === otherId && !item.isRead)
+      .map((item) => item.id);
+
+    if (markRead && unreadIds.length) {
+      getSocket()?.emit("message:read", { messageIds: unreadIds, senderId: otherId });
+      setMessages((current) =>
+        current.map((item) =>
+          unreadIds.includes(item.id) ? { ...item, isRead: true } : item
+        )
+      );
+    }
+
+    setUnreadCounts((current) => ({ ...current, [otherId]: 0 }));
   }
 
   async function sendFriendRequest(id: string) {
     await api.post("/friend-requests", { receiverId: id });
     void loadDiscover();
   }
+
   async function acceptRequest(id: string) {
     await api.post(`/friend-requests/${id}/accept`);
     await Promise.all([loadFriends(), loadRequests()]);
   }
-  async function unblockUser(uid: string) {
-    await api.delete(`/users/${uid}/block`);
+
+  async function unblockUser(userId: string) {
+    await api.delete(`/users/${userId}/block`);
     await Promise.all([loadBlockedUsers(), loadDiscover(), loadFriends(), loadRequests()]);
   }
 
-  // ─── Navigation ───────────────────────────────────────────────────────────
   function openChat(friend: User) {
     setSelectedFriend(friend);
     setMessages([]);
     setActiveTab("chat");
   }
-  function goBack() {
-    if (activeTab === "chat") { setSelectedFriend(null); setActiveTab("messages"); }
-    else setActiveTab("home");
+
+  function goHome() {
+    setActiveTab("home");
   }
 
-  // ─── Calls ────────────────────────────────────────────────────────────────
+  function goMessages() {
+    if (selectedFriend) {
+      setActiveTab("chat");
+      return;
+    }
+    setActiveTab("messages");
+  }
+
+  function goBack() {
+    if (activeTab === "chat") {
+      setSelectedFriend(null);
+      setActiveTab("messages");
+      return;
+    }
+    setActiveTab("home");
+  }
+
   function startCall(isVideo: boolean) {
     if (!selectedFriend) return;
     const roomId = getRoomId(user.id, selectedFriend.id);
     setOutgoingCall({ roomId, isVideo, receiverName: selectedFriend.fullName });
-    getSocket()?.emit("call:initiate", { receiverId: selectedFriend.id, isVideo, roomId });
+    getSocket()?.emit("call:initiate", {
+      receiverId: selectedFriend.id,
+      isVideo,
+      roomId,
+    });
   }
+
   function acceptCall() {
     if (!incomingCall) return;
-    getSocket()?.emit("call:accept", { callerId: incomingCall.callerId, roomId: incomingCall.roomId });
-    const f = friends.find((x) => x.id === incomingCall.callerId);
-    if (f) openChat(f);
+    getSocket()?.emit("call:accept", {
+      callerId: incomingCall.callerId,
+      roomId: incomingCall.roomId,
+    });
+    const friend = friends.find((item) => item.id === incomingCall.callerId);
+    if (friend) openChat(friend);
     setActiveCall({ roomId: incomingCall.roomId, isVideo: incomingCall.isVideo });
     setIncomingCall(null);
   }
+
   function declineCall() {
     if (!incomingCall) return;
     getSocket()?.emit("call:decline", { callerId: incomingCall.callerId });
     setIncomingCall(null);
   }
 
-  // ─── Messaging ────────────────────────────────────────────────────────────
-  function handleSend(e: FormEvent) {
-    e.preventDefault();
-    if (!selectedFriend || (!messageInput.trim() && !imagePreview)) return;
-    getSocket()?.emit("message:send", {
-      receiverId: selectedFriend.id,
-      content: messageInput,
-      imageUrl: imagePreview,
-    });
-    getSocket()?.emit("typing:stop", { receiverId: selectedFriend.id });
-    setMessageInput("");
-    setImagePreview(null);
-    // Keep focus on input after sending so user can keep typing
-    requestAnimationFrame(() => compInputRef.current?.focus());
-  }
-
-  /**
-   * FIX 3 — Removed the blur+refocus handleKeyDown hack entirely.
-   * That "CHANGE 3" was the root cause of the keyboard-closes-on-every-keystroke bug.
-   * The input is a standard controlled component; React handles it correctly without any blur tricks.
-   * No onKeyDown handler is attached to the composer input.
-   */
-  function handleTyping(e: React.ChangeEvent<HTMLInputElement>) {
-    setMessageInput(e.target.value);
+  function handleTyping(event: ChangeEvent<HTMLInputElement>) {
+    setMessageInput(event.target.value);
     if (!selectedFriend) return;
     if (!isTyping) {
       setIsTyping(true);
@@ -580,700 +623,1595 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
     }, 2000);
   }
 
-  function handleImgUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
+  function handleImageUpload(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
     reader.onloadend = () => setImagePreview(reader.result as string);
     reader.readAsDataURL(file);
   }
 
-  // ──────────────────────────────────────────────────────────────────────────
-  // SCREENS
-  // ──────────────────────────────────────────────────────────────────────────
+  function handleSend(event: FormEvent) {
+    event.preventDefault();
+    if (!selectedFriend || (!messageInput.trim() && !imagePreview)) return;
+    getSocket()?.emit("message:send", {
+      receiverId: selectedFriend.id,
+      content: messageInput.trim(),
+      imageUrl: imagePreview,
+    });
+    getSocket()?.emit("typing:stop", { receiverId: selectedFriend.id });
+    setMessageInput("");
+    setImagePreview(null);
+    requestAnimationFrame(() => composerRef.current?.focus());
+  }
 
-  const HomeScreen = () => (
-    <div style={S.screen}>
-      <ScreenHeader
-        title="Campus Connect"
-        right={
-          <div style={S.topAvatar} onClick={() => setActiveTab("profile")} role="button" tabIndex={0}>
-            {initials(user.fullName)}
-          </div>
-        }
-      />
-      <div style={S.scrollArea}>
-        <GsapHero onStartRandom={() => navigate("/app/random")} />
+  const friendsCount = friends.length;
+  const vibeCount = `${(friends.length * 1.6 + discoverUsers.length * 0.7 + 2.4).toFixed(1)}k`;
+  const onlineCount = Math.max(12, discoverUsers.length + friends.length * 2 + 8);
+  const featuredMembers = curatedMembers.slice(0, 3);
+  const latestThreads = friends.slice(0, 8);
 
-        <div style={S.section}>
-          <div style={S.sectionHead}>
-            <span style={S.sectionTitle}>Suggested</span>
-            <button style={S.sectionLink} onClick={() => setActiveTab("discover")}>See all</button>
-          </div>
-          {discoverUsers.slice(0, 4).length === 0
-            ? <div style={S.emptyCard}>No suggestions yet.</div>
-            : <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {discoverUsers.slice(0, 4).map((u) => (
-                  <UserCard key={u.id} user={u} onAdd={() => void sendFriendRequest(u.id)} />
-                ))}
-              </div>
-          }
+  const renderHome = () => (
+    <>
+      <TopBar user={user} onProfile={() => setActiveTab("profile")} />
+      <div style={styles.pageScroll}>
+        <div className="dashboard-home-grid" style={styles.homeGrid}>
+          <section style={styles.heroPanel}>
+            <div style={styles.badge}>• CONNECT INSTANTLY</div>
+            <h1 style={styles.heroTitle}>
+              Find your next
+              <br />
+              campus connection.
+            </h1>
+            <p style={styles.heroCopy}>
+              A more curated student space for spontaneous conversations, shared interests, and verified people.
+            </p>
+            <div style={styles.heroActions}>
+              <button style={styles.primaryAction} onClick={() => navigate("/app/random")}>
+                <Flame size={16} />
+                Start Random Chat
+              </button>
+              <button style={styles.secondaryAction} onClick={() => setActiveTab("discover")}>
+                <Sparkles size={16} />
+                Explore Members
+              </button>
+            </div>
+          </section>
+
+          <section style={styles.statsPanel}>
+            <StatBox value={friendsCount} label="FRIENDS" />
+            <StatBox value={vibeCount} label="VIBES" />
+            <StatBox value="Elite" label="STATUS" accent />
+          </section>
         </div>
 
-        <div style={S.section}>
-          <div style={S.sectionHead}>
-            <span style={S.sectionTitle}>Active friends</span>
-            <button style={S.sectionLink} onClick={() => setActiveTab("messages")}>See all</button>
-          </div>
-          <div style={{ borderRadius: 14, overflow: "hidden", border: "1px solid rgba(255,255,255,0.06)" }}>
-            {friends.length === 0
-              ? <div style={S.emptyCard}>No friends yet — accept a request to start.</div>
-              : friends.slice(0, 5).map((f) => (
-                  <ChatItem key={f.id} friend={f}
-                    unread={unreadCounts[f.id] ?? 0}
-                    lastMsg={lastMessages[f.id]}
-                    onClick={() => openChat(f)}
+        <div className="dashboard-dual-grid" style={styles.dualGrid}>
+          <section style={styles.sectionPanel}>
+            <div style={styles.sectionHead}>
+              <div>
+                <div style={styles.sectionEyebrow}>CURATED FOR YOU</div>
+                <h3 style={styles.sectionHeading}>People worth meeting</h3>
+              </div>
+              <button style={styles.inlineLink} onClick={() => setActiveTab("discover")}>
+                View all
+              </button>
+            </div>
+            <div style={styles.cardList}>
+              {featuredMembers.length ? (
+                featuredMembers.map((member) => (
+                  <MemberCard
+                    key={member.id}
+                    user={member}
+                    action={
+                      <button
+                        onClick={() => void sendFriendRequest(member.id)}
+                        style={styles.actionCircle}
+                      >
+                        <UserPlus size={16} />
+                      </button>
+                    }
                   />
                 ))
-            }
-          </div>
+              ) : (
+                <div style={styles.emptyState}>No members available right now.</div>
+              )}
+            </div>
+          </section>
+
+          <section style={styles.sectionPanel}>
+            <div style={styles.sectionHead}>
+              <div>
+                <div style={styles.sectionEyebrow}>ACTIVE DIALOGUE</div>
+                <h3 style={styles.sectionHeading}>Conversations in motion</h3>
+              </div>
+              <div style={styles.livePill}>{Math.max(4, friends.length)} ONLINE</div>
+            </div>
+            <div style={styles.cardList}>
+              {latestThreads.length ? (
+                latestThreads.slice(0, 4).map((friend) => (
+                  <button key={friend.id} onClick={() => openChat(friend)} style={styles.threadPreview}>
+                    <Avatar name={friend.fullName} size={44} online={(unreadCounts[friend.id] ?? 0) > 0} />
+                    <div style={{ flex: 1, minWidth: 0, textAlign: "left" }}>
+                      <div style={styles.threadName}>{friend.fullName}</div>
+                      <div style={styles.threadCopy}>
+                        {lastMessages[friend.id] ?? getSubtitle(friend)}
+                      </div>
+                    </div>
+                    {(unreadCounts[friend.id] ?? 0) > 0 ? (
+                      <span style={styles.threadBadge}>
+                        {unreadCounts[friend.id] > 99 ? "99+" : unreadCounts[friend.id]}
+                      </span>
+                    ) : null}
+                  </button>
+                ))
+              ) : (
+                <div style={styles.emptyState}>
+                  Accept or add friends to turn this into your active inbox.
+                </div>
+              )}
+            </div>
+          </section>
         </div>
-        <div style={{ height: 20 }} />
       </div>
-    </div>
+    </>
   );
 
-  const MessagesScreen = () => (
-    <div style={S.screen}>
-      <ScreenHeader title="Messages" onBack={() => setActiveTab("home")} />
-      {requests.length > 0 && (
-        <button onClick={() => setActiveTab("profile")} style={{
-          display: "flex", alignItems: "center", gap: 10, width: "100%",
-          padding: "10px 16px", background: "rgba(255,184,74,0.07)",
-          border: "none", borderBottom: "1px solid rgba(255,184,74,0.14)",
-          cursor: "pointer", boxSizing: "border-box",
-        }}>
-          <div style={{
-            width: 32, height: 32, borderRadius: "50%",
-            background: "rgba(255,184,74,0.14)",
-            display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
-          }}>
-            <UserPlus size={14} color="#ffb84a" />
+  const renderDiscover = () => (
+    <>
+      <TopBar
+        user={user}
+        title="Discover"
+        subtitle="Verified Members"
+        onProfile={() => setActiveTab("profile")}
+        onBack={goHome}
+      />
+      <div style={styles.pageScroll}>
+        <section style={styles.sectionPanel}>
+          <div style={styles.searchWrap}>
+            <Search size={16} style={styles.searchIcon} />
+            <input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search by major, name, or year..."
+              style={styles.searchInput}
+            />
           </div>
-          <div style={{ flex: 1, textAlign: "left" }}>
-            <div style={{ fontSize: "0.82rem", fontWeight: 700, color: "#ffb84a" }}>
-              {requests.length} Friend Request{requests.length > 1 ? "s" : ""}
-            </div>
-            <div style={{ fontSize: "0.72rem", color: "rgba(255,255,255,0.38)" }}>Tap to view and accept</div>
+
+          <div style={styles.filterWrap}>
+            {(["All", "Architecture", "Design", "Technology"] as FilterTag[]).map((filter) => (
+              <button
+                key={filter}
+                onClick={() => setActiveFilter(filter)}
+                style={{
+                  ...styles.filterChip,
+                  ...(activeFilter === filter ? styles.filterChipActive : {}),
+                }}
+              >
+                {filter}
+              </button>
+            ))}
           </div>
-          <span style={{ color: "rgba(255,255,255,0.25)", fontSize: "1.2rem" }}>›</span>
-        </button>
-      )}
-      <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden", minHeight: 0 }}>
-        {friends.length === 0
-          ? <div style={{ padding: 40, textAlign: "center", color: "rgba(255,255,255,0.28)", fontSize: "0.84rem" }}>
-              No conversations yet. Discover and add friends!
+
+          <div style={styles.sectionHead}>
+            <div>
+              <div style={styles.sectionEyebrow}>RECOMMENDED</div>
+              <h3 style={styles.sectionHeading}>Students you may vibe with</h3>
             </div>
-          : friends.map((f) => (
-              <ChatItem key={f.id} friend={f} active={selectedFriend?.id === f.id}
-                unread={unreadCounts[f.id] ?? 0}
-                lastMsg={lastMessages[f.id]}
-                onClick={() => openChat(f)}
-              />
-            ))
-        }
+            <div style={styles.livePill}>{onlineCount} ONLINE</div>
+          </div>
+
+          <div className="discover-grid" style={styles.discoverGrid}>
+            {curatedMembers.length ? (
+              curatedMembers.map((member) => (
+                <article key={member.id} style={styles.discoverCard}>
+                  <Avatar name={member.fullName} size={54} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={styles.memberName}>{member.fullName}</div>
+                    <div style={styles.memberSubtitle}>{getSubtitle(member)}</div>
+                    {member.mutualConnections ? (
+                      <div style={styles.metaInline}>
+                        <Users size={12} />
+                        {member.mutualConnections} mutual
+                      </div>
+                    ) : null}
+                  </div>
+                  <button
+                    onClick={() => void sendFriendRequest(member.id)}
+                    style={styles.actionCircle}
+                  >
+                    <UserPlus size={16} />
+                  </button>
+                </article>
+              ))
+            ) : (
+              <div style={styles.emptyState}>No matching members found for that filter.</div>
+            )}
+          </div>
+        </section>
       </div>
-    </div>
+    </>
   );
 
-  const ChatScreen = () => {
-    if (!selectedFriend) return null;
+  const renderMessages = () => (
+    <>
+      <TopBar
+        user={user}
+        title="Inbox"
+        subtitle="Private Dialogue"
+        onProfile={() => setActiveTab("profile")}
+        onBack={goHome}
+      />
+      <div style={styles.pageScroll}>
+        <div className="messages-layout" style={styles.messagesLayout}>
+          <section style={styles.sectionPanel}>
+            <div style={styles.sectionHead}>
+              <div>
+                <div style={styles.sectionEyebrow}>THREADS</div>
+                <h3 style={styles.sectionHeading}>Recent conversations</h3>
+              </div>
+            </div>
+
+            {requests.length > 0 ? (
+              <div style={styles.requestNotice}>
+                <div style={styles.noticeTextBlock}>
+                  <strong>{requests.length} pending friend request{requests.length > 1 ? "s" : ""}</strong>
+                  <span>Review them in Elite.</span>
+                </div>
+                <button style={styles.noticeButton} onClick={() => setActiveTab("profile")}>
+                  View
+                </button>
+              </div>
+            ) : null}
+
+            <div style={styles.cardList}>
+              {friends.length ? (
+                friends.map((friend) => (
+                  <button key={friend.id} onClick={() => openChat(friend)} style={styles.threadRow}>
+                    <Avatar name={friend.fullName} size={46} online={(unreadCounts[friend.id] ?? 0) > 0} />
+                    <div style={{ flex: 1, minWidth: 0, textAlign: "left" }}>
+                      <div style={styles.threadName}>{friend.fullName}</div>
+                      <div style={styles.threadCopy}>
+                        {lastMessages[friend.id] ?? getSubtitle(friend)}
+                      </div>
+                    </div>
+                    {(unreadCounts[friend.id] ?? 0) > 0 ? (
+                      <span style={styles.threadBadge}>
+                        {unreadCounts[friend.id] > 99 ? "99+" : unreadCounts[friend.id]}
+                      </span>
+                    ) : null}
+                  </button>
+                ))
+              ) : (
+                <div style={styles.emptyState}>
+                  No conversations yet. Explore the network and add someone first.
+                </div>
+              )}
+            </div>
+          </section>
+
+          <section className="messages-preview-panel" style={styles.sectionPanel}>
+            <div style={styles.sectionHead}>
+              <div>
+                <div style={styles.sectionEyebrow}>PREVIEW</div>
+                <h3 style={styles.sectionHeading}>
+                  {selectedFriend ? selectedFriend.fullName : "Select a conversation"}
+                </h3>
+              </div>
+            </div>
+
+            {selectedFriend ? (
+              <div style={styles.previewCard}>
+                <Avatar name={selectedFriend.fullName} size={72} />
+                <div style={styles.previewTitle}>{selectedFriend.fullName}</div>
+                <div style={styles.previewSubtitle}>{getSubtitle(selectedFriend)}</div>
+                <button style={styles.primaryAction} onClick={() => setActiveTab("chat")}>
+                  Open Chat
+                </button>
+              </div>
+            ) : (
+              <div style={styles.emptyState}>
+                Pick a thread on the left to open it here on larger screens.
+              </div>
+            )}
+          </section>
+        </div>
+      </div>
+    </>
+  );
+
+  const renderChat = () => {
+    if (!selectedFriend) {
+      return (
+        <>
+          <TopBar
+            user={user}
+            title="Inbox"
+            subtitle="Choose a thread"
+            onProfile={() => setActiveTab("profile")}
+            onBack={goMessages}
+          />
+          <div style={styles.pageScroll}>
+            <div style={styles.emptyState}>Choose a friend from your inbox to start chatting.</div>
+          </div>
+        </>
+      );
+    }
 
     if (activeCall && zegoConfig) {
       return (
-        <div style={{ ...S.screen, position: "relative" }}>
-          <ScreenHeader title={selectedFriend.fullName} onBack={() => setActiveCall(null)} />
-          <div style={{ flex: 1, background: "#000", position: "relative", minHeight: 0 }}>
+        <>
+          <TopBar
+            user={user}
+            title={selectedFriend.fullName}
+            subtitle={activeCall.isVideo ? "Video Session" : "Voice Session"}
+            onProfile={() => setActiveTab("profile")}
+            onBack={() => setActiveCall(null)}
+          />
+          <div style={styles.callStage}>
             <VideoRoom
-              appId={zegoConfig.appId} serverSecret={zegoConfig.serverSecret}
-              roomId={activeCall.roomId} userId={user.id} userName={user.fullName}
-              isAudioOnly={!activeCall.isVideo} onJoined={() => {}}
+              appId={zegoConfig.appId}
+              serverSecret={zegoConfig.serverSecret}
+              roomId={activeCall.roomId}
+              userId={user.id}
+              userName={user.fullName}
+              isAudioOnly={!activeCall.isVideo}
+              onJoined={() => {}}
             />
-            <button onClick={() => setActiveCall(null)} style={{
-              position: "absolute", top: 14, right: 14, zIndex: 9999,
-              background: "rgba(255,70,70,0.88)", padding: "8px 18px",
-              borderRadius: 18, border: "none", color: "#fff", cursor: "pointer",
-              fontWeight: 600, display: "flex", alignItems: "center", gap: 6,
-            }}>
-              <Phone size={14} style={{ transform: "rotate(135deg)" }} /> End
+            <button onClick={() => setActiveCall(null)} style={styles.endCallButton}>
+              <Phone size={14} style={{ transform: "rotate(135deg)" }} />
+              End Call
             </button>
           </div>
-        </div>
+        </>
       );
     }
 
     return (
-      <div style={S.screen}>
-        <ScreenHeader
+      <>
+        <TopBar
+          user={user}
           title={selectedFriend.fullName}
-          onBack={goBack}
+          subtitle="Online now"
+          onProfile={() => setActiveTab("profile")}
+          onBack={goMessages}
           right={
             <>
-              <button style={S.iconBtn} onClick={() => startCall(false)} title="Voice call">
+              <button style={styles.iconButton} onClick={() => startCall(false)}>
                 <Phone size={15} />
               </button>
-              <button style={S.iconBtn} onClick={() => startCall(true)} title="Video call">
+              <button style={styles.iconButton} onClick={() => startCall(true)}>
                 <Camera size={15} />
               </button>
             </>
           }
         />
 
-        {partnerTyping && (
-          <div style={{
-            padding: "5px 16px", fontSize: "0.72rem", color: "rgba(255,255,255,0.4)",
-            flexShrink: 0, background: "rgba(0,0,0,0.12)",
-            borderBottom: "1px solid rgba(255,255,255,0.04)",
-          }}>
-            {selectedFriend.fullName} is typing…
-          </div>
-        )}
+        <div className="chat-shell" style={styles.chatShell}>
+          <div className="chat-main-panel" style={styles.chatPanel}>
+            <div style={styles.chatMessages}>
+              {messages.length ? (
+                messages.map((message) => (
+                  <MessageBubble
+                    key={message.id}
+                    message={message}
+                    mine={message.senderId === user.id}
+                  />
+                ))
+              ) : (
+                <div style={styles.emptyState}>
+                  Say hello to {selectedFriend.fullName.split(" ")[0]} and start the conversation.
+                </div>
+              )}
 
-        <div style={{
-          flex: 1, overflowY: "auto", overflowX: "hidden",
-          padding: "12px 14px", display: "flex", flexDirection: "column",
-          gap: 3, minHeight: 0,
-        }}>
-          {messages.length === 0
-            ? <div style={{
-                flex: 1, display: "flex", alignItems: "center", justifyContent: "center",
-                color: "rgba(255,255,255,0.25)", fontSize: "0.84rem", textAlign: "center",
-              }}>
-                Say hello to {selectedFriend.fullName} 👋
+              {partnerTyping ? (
+                <div style={{ display: "flex", justifyContent: "flex-start" }}>
+                  <div style={styles.typingBubble}>
+                    <span style={styles.typingDot} />
+                    <span style={{ ...styles.typingDot, animationDelay: "0.15s" }} />
+                    <span style={{ ...styles.typingDot, animationDelay: "0.3s" }} />
+                  </div>
+                </div>
+              ) : null}
+
+              <div ref={bottomRef} />
+            </div>
+
+            {imagePreview ? (
+              <div style={styles.imagePreviewRow}>
+                <img src={imagePreview} alt="preview" style={styles.imagePreview} />
+                <button onClick={() => setImagePreview(null)} style={styles.closePreview}>
+                  <X size={13} />
+                </button>
               </div>
-            : messages.map((m) => (
-                <MessageBubble key={m.id} msg={m} mine={m.senderId === user.id} />
-              ))
-          }
-          {partnerTyping && (
-            <div style={{ display: "flex", padding: "4px 0" }}>
-              <div style={{
-                padding: "9px 13px", borderRadius: "18px 18px 18px 4px",
-                background: "rgba(255,255,255,0.08)", display: "flex", gap: 4, alignItems: "center",
-              }}>
-                {[0, 200, 400].map((delay, i) => (
-                  <span key={i} style={{
-                    width: 5, height: 5, borderRadius: "50%",
-                    background: "rgba(255,255,255,0.5)", display: "inline-block",
-                    animation: `tdot 1.2s ${delay}ms infinite`,
-                  }} />
-                ))}
+            ) : null}
+
+            <form onSubmit={handleSend} style={styles.composer}>
+              <input
+                ref={fileRef}
+                type="file"
+                accept="image/*"
+                onChange={handleImageUpload}
+                style={{ display: "none" }}
+              />
+              <button type="button" onClick={() => fileRef.current?.click()} style={styles.iconButton}>
+                <ImagePlus size={16} />
+              </button>
+              <input
+                ref={composerRef}
+                value={messageInput}
+                onChange={handleTyping}
+                placeholder="Type your message..."
+                style={styles.composerInput}
+                autoComplete="off"
+                autoCorrect="off"
+                spellCheck={false}
+              />
+              <button
+                type="submit"
+                disabled={!messageInput.trim() && !imagePreview}
+                style={{
+                  ...styles.sendButton,
+                  opacity: messageInput.trim() || imagePreview ? 1 : 0.55,
+                }}
+              >
+                <Send size={16} />
+              </button>
+            </form>
+          </div>
+
+          <aside className="chat-info-panel" style={styles.chatInfoPanel}>
+            <div style={styles.previewCard}>
+              <Avatar name={selectedFriend.fullName} size={76} online />
+              <div style={styles.previewTitle}>{selectedFriend.fullName}</div>
+              <div style={styles.previewSubtitle}>{getSubtitle(selectedFriend)}</div>
+              <div style={styles.metaInline}>
+                <Sparkles size={13} />
+                Verified member
               </div>
             </div>
-          )}
-          <div ref={bottomRef} />
+          </aside>
         </div>
-
-        {imagePreview && (
-          <div style={{
-            padding: "8px 14px", flexShrink: 0,
-            borderTop: "1px solid rgba(255,255,255,0.07)",
-            display: "flex", alignItems: "center", gap: 10,
-            background: "rgba(0,0,0,0.15)",
-          }}>
-            <img src={imagePreview} alt="preview"
-              style={{ height: 54, borderRadius: 8, objectFit: "cover" }} />
-            <button onClick={() => setImagePreview(null)} style={{
-              width: 22, height: 22, borderRadius: "50%",
-              background: "rgba(255,60,60,0.8)", border: "none",
-              color: "#fff", cursor: "pointer",
-              display: "flex", alignItems: "center", justifyContent: "center",
-            }}><X size={12} /></button>
-          </div>
-        )}
-
-        {/*
-          FIX 3: Composer input — NO onKeyDown handler.
-          Standard controlled input; keyboard stays open while typing.
-          fontSize 16px prevents iOS auto-zoom on focus.
-        */}
-        <form onSubmit={handleSend} style={{
-          display: "flex", alignItems: "center", gap: 8,
-          padding: "10px 14px",
-          paddingBottom: "calc(10px + env(safe-area-inset-bottom, 0px))",
-          flexShrink: 0,
-          borderTop: "1px solid rgba(255,255,255,0.08)",
-          background: "rgba(10,14,23,0.97)",
-          backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)",
-          boxSizing: "border-box", width: "100%",
-        }}>
-          <input
-            type="file" accept="image/*"
-            style={{ display: "none" }} ref={fileRef}
-            onChange={handleImgUpload}
-          />
-          <button type="button" onClick={() => fileRef.current?.click()} style={S.compIcon}>
-            <ImagePlus size={16} />
-          </button>
-          <input
-            ref={compInputRef}
-            style={{ ...S.compInput, fontSize: "16px" }}
-            placeholder="Message…"
-            value={messageInput}
-            onChange={handleTyping}
-            // No onKeyDown — removing the blur/refocus hack fixes the keyboard bug
-            autoComplete="off"
-            autoCorrect="off"
-            spellCheck={false}
-            enterKeyHint="send"
-          />
-          <button
-            type="submit"
-            disabled={!messageInput.trim() && !imagePreview}
-            style={{
-              ...S.compIcon,
-              background: (messageInput.trim() || imagePreview)
-                ? "linear-gradient(135deg, #ffb84a, #ff8c42)"
-                : "rgba(255,255,255,0.05)",
-              color: (messageInput.trim() || imagePreview) ? "#1a0e00" : "rgba(255,255,255,0.25)",
-              border: (messageInput.trim() || imagePreview) ? "none" : "1px solid rgba(255,255,255,0.08)",
-            }}
-          >
-            <Send size={15} />
-          </button>
-        </form>
-      </div>
+      </>
     );
   };
 
-  const DiscoverScreen = () => (
-    <div style={S.screen}>
-      <ScreenHeader title="Discover" onBack={() => setActiveTab("home")} />
-      <div style={{ padding: "12px 16px", flexShrink: 0, borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
-        <div style={{ position: "relative" }}>
-          <Search size={14} style={{
-            position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)",
-            color: "rgba(255,255,255,0.35)", pointerEvents: "none",
-          }} />
-          <input
-            style={{ ...S.filterInput, paddingLeft: 34, fontSize: "16px" }}
-            placeholder="Search by name…"
-            value={nameFilter}
-            onChange={(e) => setNameFilter(e.target.value)}
-            autoComplete="off" autoCorrect="off" spellCheck={false}
-          />
-          {nameFilter && (
-            <button onClick={() => setNameFilter("")} style={{
-              position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)",
-              background: "rgba(255,255,255,0.1)", border: "none", borderRadius: "50%",
-              width: 20, height: 20, cursor: "pointer", color: "rgba(255,255,255,0.5)",
-              display: "flex", alignItems: "center", justifyContent: "center", padding: 0,
-            }}>
-              <X size={11} />
-            </button>
-          )}
-        </div>
-        <div style={{ fontSize: "0.73rem", color: "rgba(255,255,255,0.33)", marginTop: 8 }}>
-          {filteredDiscoverUsers.length} student{filteredDiscoverUsers.length !== 1 ? "s" : ""} found
-          {nameFilter.trim() && (
-            <span style={{ color: "rgba(255,184,74,0.7)", marginLeft: 4 }}>
-              for "{nameFilter.trim()}"
-            </span>
-          )}
-        </div>
-      </div>
-      <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden", padding: "12px 16px", minHeight: 0 }}>
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {filteredDiscoverUsers.map((u) => (
-            <UserCard key={u.id} user={u} onAdd={() => void sendFriendRequest(u.id)} />
-          ))}
-          {filteredDiscoverUsers.length === 0 && (
-            <div style={S.emptyCard}>
-              {nameFilter.trim()
-                ? `No students found matching "${nameFilter.trim()}".`
-                : "No students to discover right now."}
+  const renderProfile = () => (
+    <>
+      <TopBar
+        user={user}
+        title="Elite"
+        subtitle="Your Campus Identity"
+        onProfile={() => undefined}
+        onBack={goHome}
+      />
+      <div style={styles.pageScroll}>
+        <div className="profile-layout" style={styles.profileLayout}>
+          <section style={styles.profileHero}>
+            <div style={styles.profileHalo}>
+              <Avatar name={user.fullName} size={108} />
             </div>
-          )}
-        </div>
-        <div style={{ height: 20 }} />
-      </div>
-    </div>
-  );
+            <h2 style={styles.profileName}>{user.fullName}</h2>
+            <div style={styles.profileHandle}>@{user.fullName.replace(/\s+/g, ".").toUpperCase()}</div>
 
-  const ProfileScreen = () => (
-    <div style={S.screen}>
-      <ScreenHeader title="Profile" onBack={() => setActiveTab("home")} />
-      <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden", padding: 16, minHeight: 0 }}>
-        <div style={{
-          background: "linear-gradient(135deg, #0d2137, #0a1628)",
-          border: "1px solid rgba(255,184,74,0.15)",
-          borderRadius: 18, padding: "24px 20px", marginBottom: 14,
-          display: "flex", flexDirection: "column", alignItems: "center",
-          gap: 12, textAlign: "center", boxSizing: "border-box",
-        }}>
-          <Avatar name={user.fullName} size={74} />
-          <div>
-            <div style={{ fontSize: "1.1rem", fontWeight: 800, color: "#fff" }}>{user.fullName}</div>
-            {(user as any).course && (user as any).year && (
-              <div style={{ fontSize: "0.78rem", color: "rgba(255,255,255,0.4)", marginTop: 3 }}>
-                {(user as any).course} · {(user as any).year} Year
-              </div>
-            )}
-          </div>
-          <div style={{
-            display: "flex", width: "100%",
-            background: "rgba(255,255,255,0.05)", borderRadius: 12,
-            border: "1px solid rgba(255,255,255,0.07)", overflow: "hidden",
-          }}>
-            {[["Friends", friends.length], ["Requests", requests.length], ["Discover", discoverUsers.length]].map(
-              ([label, val], i, arr) => (
-                <div key={label as string} style={{
-                  flex: 1, padding: "12px 4px", textAlign: "center",
-                  borderRight: i < arr.length - 1 ? "1px solid rgba(255,255,255,0.06)" : "none",
-                }}>
-                  <strong style={{ display: "block", fontSize: "1.15rem", color: "#fff", fontWeight: 800 }}>{val}</strong>
-                  <span style={{ fontSize: "0.66rem", color: "rgba(255,255,255,0.33)" }}>{label}</span>
+            <div className="profile-stats-grid" style={styles.profileStatsGrid}>
+              <StatBox value={friends.length} label="FRIENDS" />
+              <StatBox value={vibeCount} label="VIBES" />
+              <StatBox value="Elite" label="STATUS" accent />
+            </div>
+          </section>
+
+          <section style={styles.sectionPanel}>
+            <div style={styles.sectionEyebrow}>INFORMATION</div>
+            <div style={styles.infoCard}>
+              <div style={styles.infoHead}>
+                <GraduationCap size={17} color="#b58cff" />
+                <div>
+                  <div style={styles.infoTitle}>{user.course ?? "Campus Member"}</div>
+                  <div style={styles.infoCaption}>{user.year ?? "Verified Student"}</div>
                 </div>
-              )
-            )}
-          </div>
-          <button onClick={onLogout} style={{
-            background: "rgba(255,70,70,0.1)", border: "1px solid rgba(255,70,70,0.22)",
-            color: "#ff6b6b", borderRadius: 11, padding: "9px 24px",
-            fontSize: "0.86rem", fontWeight: 600, cursor: "pointer",
-          }}>Logout</button>
-        </div>
-
-        {requests.length > 0 && (
-          <div style={{ ...S.panel, marginBottom: 12 }}>
-            <div style={S.panelHead}>
-              <span style={S.panelTitle}>Friend Requests</span>
-              <span style={S.panelCount}>{requests.length}</span>
+              </div>
+              <p style={styles.infoParagraph}>
+                {user.bio ??
+                  user.interests ??
+                  "Blending campus energy, private conversation, and more thoughtful social discovery."}
+              </p>
             </div>
-            {requests.map((req) => (
-              <div key={req.id} style={S.panelItem}>
-                <Avatar name={req.sender.fullName} size={36} gradient="135deg, #4ee1b7, #1b8a6b" />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: "0.84rem", fontWeight: 700, color: "#fff" }}>{req.sender.fullName}</div>
-                  <div style={{ fontSize: "0.72rem", color: "rgba(255,255,255,0.38)" }}>
-                    {(req.sender as any).course && (req.sender as any).year
-                      ? `${(req.sender as any).course} · ${(req.sender as any).year} Year`
-                      : "Campus student"}
+
+            {requests.length ? (
+              <>
+                <div style={styles.sectionEyebrow}>FRIEND REQUESTS</div>
+                <div style={styles.cardList}>
+                  {requests.map((request) => (
+                    <MemberCard
+                      key={request.id}
+                      user={request.sender}
+                      compact
+                      action={
+                        <button
+                          onClick={() => void acceptRequest(request.id)}
+                          style={styles.acceptButton}
+                        >
+                          Accept
+                        </button>
+                      }
+                    />
+                  ))}
+                </div>
+              </>
+            ) : null}
+          </section>
+
+          <section style={styles.sectionPanel}>
+            <div style={styles.sectionEyebrow}>ACTIVITY</div>
+            <div style={styles.cardList}>
+              {notifications.length ? (
+                notifications.slice(0, 5).map((notification) => (
+                  <div key={notification.id} style={styles.infoRow}>
+                    <Info size={15} color="#b58cff" />
+                    <span>{notification.message}</span>
                   </div>
+                ))
+              ) : (
+                <div style={styles.infoRow}>
+                  <Info size={15} color="rgba(255,255,255,0.4)" />
+                  <span>No recent notifications yet.</span>
                 </div>
-                <button onClick={() => void acceptRequest(req.id)} style={{
-                  background: "linear-gradient(135deg, #4ee1b7, #1b8a6b)",
-                  border: "none", borderRadius: 9, padding: "7px 14px",
-                  fontSize: "0.76rem", fontWeight: 700, color: "#fff", cursor: "pointer", flexShrink: 0,
-                }}>Accept</button>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {notifications.length > 0 && (
-          <div style={{ ...S.panel, marginBottom: 12 }}>
-            <div style={S.panelHead}>
-              <span style={S.panelTitle}>Notifications</span>
-              <span style={S.panelCount}>{notifications.length}</span>
+              )}
             </div>
-            {notifications.map((n) => (
-              <div key={n.id} style={S.panelItem}>
-                <div style={{
-                  width: 34, height: 34, borderRadius: 9,
-                  background: "rgba(255,184,74,0.1)",
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  color: "#ffb84a", flexShrink: 0,
-                }}>{n.type === "friend_accept" ? "✓" : n.type === "friend_request" ? "+" : "i"}</div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: "0.82rem", fontWeight: 600, color: "#fff", marginBottom: 2 }}>
-                    {n.type === "friend_accept" ? "Friend accepted" : n.type === "friend_request" ? "New request" : "Update"}
-                  </div>
-                  <div style={{ fontSize: "0.72rem", color: "rgba(255,255,255,0.38)" }}>{n.message}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
 
-        <div style={S.panel}>
-          <div style={S.panelHead}>
-            <span style={S.panelTitle}>Blocked Users</span>
-            <span style={S.panelCount}>{blockedUsers.length}</span>
-          </div>
-          {blockedUsers.length === 0
-            ? <div style={{ padding: 18, textAlign: "center", color: "rgba(255,255,255,0.24)", fontSize: "0.8rem" }}>
-                <Lock size={16} style={{ marginBottom: 6, display: "block", margin: "0 auto 8px" }} />
-                People you block appear here.
-              </div>
-            : blockedUsers.map((e) => (
-                <div key={e.id} style={S.panelItem}>
-                  <div style={{
-                    width: 34, height: 34, borderRadius: 9,
-                    background: "rgba(255,70,70,0.1)",
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                    color: "#ff6b6b", flexShrink: 0,
-                  }}><ShieldBan size={14} /></div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: "0.83rem", fontWeight: 700, color: "#fff" }}>{e.user.fullName}</div>
-                    <div style={{ fontSize: "0.72rem", color: "rgba(255,255,255,0.35)" }}>
-                      {e.reason ? `Reason: ${e.reason}` : "Blocked user"}
+            <div style={styles.sectionEyebrow}>SAFETY</div>
+            <div style={styles.cardList}>
+              {blockedUsers.length ? (
+                blockedUsers.map((entry) => (
+                  <div key={entry.id} style={styles.blockedRow}>
+                    <div style={{ flex: 1 }}>
+                      <div style={styles.infoTitle}>{entry.user.fullName}</div>
+                      <div style={styles.infoCaption}>{entry.reason ?? "Blocked member"}</div>
                     </div>
+                    <button
+                      onClick={() => void unblockUser(entry.user.id)}
+                      style={styles.ghostAction}
+                    >
+                      <ShieldBan size={14} />
+                      Unblock
+                    </button>
                   </div>
-                  <button onClick={() => void unblockUser(e.user.id)} style={{
-                    background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.09)",
-                    borderRadius: 9, padding: "6px 11px",
-                    fontSize: "0.74rem", fontWeight: 600, color: "rgba(255,255,255,0.48)",
-                    cursor: "pointer", display: "flex", alignItems: "center", gap: 5, flexShrink: 0,
-                  }}><ShieldBan size={12} /> Unblock</button>
+                ))
+              ) : (
+                <div style={styles.infoRow}>
+                  <Lock size={15} color="rgba(255,255,255,0.4)" />
+                  <span>No blocked users yet.</span>
                 </div>
-              ))
-          }
+              )}
+            </div>
+
+            <button onClick={onLogout} style={styles.logoutButton}>
+              Logout
+            </button>
+          </section>
         </div>
-        <div style={{ height: 20 }} />
       </div>
-    </div>
+    </>
   );
 
-  // ─── Bottom Nav Config ────────────────────────────────────────────────────
-  /*
-   * FIX 1: badge uses `usersWithUnread` — the count of distinct users who have unread
-   * messages — instead of the raw sum of all unread messages.
-   * Example: Raj sent 3, Akshat sent 1 → badge = 2 (two users), not 4 (four messages).
-   */
-  const tabs: { id: AppTab; label: string; icon: React.ReactNode; badge?: number }[] = [
-    { id: "home", label: "Home", icon: <Home size={21} /> },
-    { id: "discover", label: "Discover", icon: <Search size={21} /> },
-    { id: "messages", label: "Messages", icon: <MessageCircle size={21} />, badge: usersWithUnread },
-    { id: "profile", label: "Profile", icon: <UserCircle2 size={21} /> },
-  ];
-  const navActive = (id: AppTab) =>
-    id === "messages" ? (activeTab === "messages" || activeTab === "chat") : activeTab === id;
+  const content =
+    activeTab === "home"
+      ? renderHome()
+      : activeTab === "discover"
+        ? renderDiscover()
+        : activeTab === "messages"
+          ? renderMessages()
+          : activeTab === "chat"
+            ? renderChat()
+            : renderProfile();
 
-  // ─── MAIN RENDER ──────────────────────────────────────────────────────────
   return (
     <>
       <style>{`
-        @keyframes tdot {
-          0%,60%,100%{transform:translateY(0)}
-          30%{transform:translateY(-5px)}
+        @keyframes dashboardTyping {
+          0%, 80%, 100% { transform: scale(0.8); opacity: 0.45; }
+          40% { transform: scale(1); opacity: 1; }
         }
-        @keyframes blink {0%,100%{opacity:1}50%{opacity:0.2}}
-        @keyframes pulse {
-          0%{box-shadow:0 0 0 0 rgba(78,225,183,0.4)}
-          70%{box-shadow:0 0 0 18px rgba(78,225,183,0)}
-          100%{box-shadow:0 0 0 0 rgba(78,225,183,0)}
+
+        @media (min-width: 960px) {
+          .dashboard-mobile-nav {
+            display: none !important;
+          }
+
+          .mobile-logo-only {
+            display: none !important;
+          }
+
+          .messages-preview-panel,
+          .chat-info-panel {
+            display: flex !important;
+          }
         }
-        *{box-sizing:border-box}
-        ::-webkit-scrollbar{width:0;background:transparent}
-        html,body{height:100%;overflow:hidden;position:fixed;width:100%;}
-        input,textarea,select{font-size:16px !important;}
+
+        @media (max-width: 959px) {
+          .dashboard-desktop-nav,
+          .messages-preview-panel,
+          .chat-info-panel {
+            display: none !important;
+          }
+        }
+
+        @media (max-width: 1180px) {
+          .dashboard-home-grid,
+          .dashboard-dual-grid,
+          .messages-layout,
+          .profile-layout,
+          .chat-shell {
+            grid-template-columns: 1fr !important;
+          }
+        }
+
+        @media (max-width: 720px) {
+          .discover-grid,
+          .profile-stats-grid {
+            grid-template-columns: 1fr !important;
+          }
+        }
       `}</style>
 
-      <div style={{
-        position: "fixed", inset: 0,
-        display: "flex", flexDirection: "column",
-        background: "#0a0f1c", color: "#e8eaf0",
-        fontFamily: "'Segoe UI', system-ui, sans-serif",
-        overflow: "hidden", maxWidth: "100%",
-      }}>
-        <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column", minHeight: 0 }}>
-          {activeTab === "home"     && <HomeScreen />}
-          {activeTab === "discover" && <DiscoverScreen />}
-          {activeTab === "messages" && <MessagesScreen />}
-          {activeTab === "chat"     && <ChatScreen />}
-          {activeTab === "profile"  && <ProfileScreen />}
-        </div>
+      <div style={styles.appShell}>
+        <SidebarNav
+          activeTab={activeTab}
+          setActiveTab={(tab) => {
+            if (tab === "messages" && !selectedFriend) {
+              setActiveTab("messages");
+              return;
+            }
+            if (tab !== "chat") setActiveTab(tab);
+          }}
+          usersWithUnread={usersWithUnread}
+        />
 
-        {activeTab !== "chat" && (
-          <nav style={{
-            display: "flex",
-            height: "calc(60px + env(safe-area-inset-bottom, 0px))",
-            paddingBottom: "env(safe-area-inset-bottom, 0px)",
-            background: "rgba(8,12,20,0.98)",
-            borderTop: "1px solid rgba(255,255,255,0.08)",
-            backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
-            flexShrink: 0, width: "100%",
-          }}>
-            {tabs.map((tab) => (
-              <button key={tab.id} onClick={() => {
-                if (tab.id === "messages") setSelectedFriend(null);
-                setActiveTab(tab.id);
-              }} style={{
-                flex: 1, display: "flex", flexDirection: "column",
-                alignItems: "center", justifyContent: "center", gap: 3,
-                background: "none", border: "none", cursor: "pointer",
-                color: navActive(tab.id) ? "#ffb84a" : "rgba(255,255,255,0.32)",
-                fontSize: "0.63rem", fontWeight: 600,
-                position: "relative", transition: "color 0.15s",
-                padding: "8px 0",
-              }}>
-                {tab.icon}
-                <span>{tab.label}</span>
-                {/* FIX 1: badge = number of users with unread (not total message count) */}
-                {tab.badge && tab.badge > 0 ? (
-                  <span style={{
-                    position: "absolute", top: 6,
-                    right: "calc(50% - 18px)",
-                    background: "#ff4444", color: "#fff",
-                    fontSize: "0.57rem", fontWeight: 800,
-                    padding: "1px 5px", borderRadius: 100,
-                    minWidth: 16, textAlign: "center",
-                    border: "2px solid #08121e",
-                  }}>{tab.badge > 99 ? "99+" : tab.badge}</span>
-                ) : null}
-              </button>
-            ))}
-          </nav>
-        )}
+        <main style={styles.mainShell}>{content}</main>
       </div>
 
-      {/* Outgoing Call Overlay */}
-      {outgoingCall && !activeCall && (
-        <div style={S.callOverlay}>
-          <div style={{ ...S.callAvatar, animation: "pulse 1.5s infinite" }}>
-            {initials(outgoingCall.receiverName)}
-          </div>
-          <h3 style={{ margin: 0, color: "#fff", fontSize: "1.45rem" }}>{outgoingCall.receiverName}</h3>
-          <p style={{ color: "rgba(255,255,255,0.42)", marginTop: 6, fontSize: "0.88rem" }}>Calling…</p>
-          <button onClick={() => setOutgoingCall(null)} style={S.callEndBtn}>
-            <Phone size={17} style={{ transform: "rotate(135deg)" }} /> Cancel
+      {outgoingCall && !activeCall ? (
+        <div style={styles.overlay}>
+          <Avatar name={outgoingCall.receiverName} size={90} />
+          <div style={styles.overlayTitle}>{outgoingCall.receiverName}</div>
+          <div style={styles.overlayText}>Calling now...</div>
+          <button onClick={() => setOutgoingCall(null)} style={styles.overlayDanger}>
+            <Phone size={14} style={{ transform: "rotate(135deg)" }} />
+            Cancel
           </button>
         </div>
-      )}
+      ) : null}
 
-      {/* Incoming Call Overlay */}
-      {incomingCall && !activeCall && (
-        <div style={S.callOverlay}>
-          <div style={S.callAvatar}>{initials(incomingCall.callerName)}</div>
-          <h3 style={{ margin: 0, color: "#fff", fontSize: "1.45rem" }}>{incomingCall.callerName}</h3>
-          <p style={{ color: "rgba(255,255,255,0.42)", marginTop: 6, fontSize: "0.88rem" }}>
-            Incoming {incomingCall.isVideo ? "Video" : "Audio"} Call…
-          </p>
-          <div style={{ display: "flex", gap: 20, marginTop: 32 }}>
-            <button onClick={declineCall} style={{
-              background: "#ff4444", borderRadius: "50%", border: "none", color: "#fff",
-              cursor: "pointer", width: 58, height: 58, display: "flex", alignItems: "center", justifyContent: "center",
-            }}>
-              <Phone size={22} style={{ transform: "rotate(135deg)" }} />
+      {incomingCall && !activeCall ? (
+        <div style={styles.overlay}>
+          <Avatar name={incomingCall.callerName} size={90} online />
+          <div style={styles.overlayTitle}>{incomingCall.callerName}</div>
+          <div style={styles.overlayText}>
+            Incoming {incomingCall.isVideo ? "video" : "voice"} call
+          </div>
+          <div style={{ display: "flex", gap: 14 }}>
+            <button onClick={declineCall} style={styles.overlayRoundDanger}>
+              <Phone size={18} style={{ transform: "rotate(135deg)" }} />
             </button>
-            <button onClick={acceptCall} style={{
-              background: "#4ee1b7", borderRadius: "50%", border: "none", color: "#000",
-              cursor: "pointer", width: 58, height: 58, display: "flex", alignItems: "center", justifyContent: "center",
-            }}>
-              {incomingCall.isVideo ? <Camera size={22} /> : <Phone size={22} />}
+            <button onClick={acceptCall} style={styles.overlayRoundAccept}>
+              {incomingCall.isVideo ? <Camera size={18} /> : <Phone size={18} />}
             </button>
           </div>
         </div>
-      )}
+      ) : null}
     </>
   );
 }
 
-// ─── Style constants ──────────────────────────────────────────────────────────
-const S = {
-  screen: {
-    display: "flex" as const, flexDirection: "column" as const,
-    height: "100%", overflow: "hidden", width: "100%", maxWidth: "100%",
+const styles: Record<string, CSSProperties> = {
+  appShell: {
+    minHeight: "100dvh",
+    display: "grid",
+    gridTemplateColumns: "280px minmax(0, 1fr)",
+    background:
+      "radial-gradient(circle at top left, rgba(181,140,255,0.12), transparent 24%), radial-gradient(circle at bottom right, rgba(72,128,255,0.08), transparent 18%), #07070a",
+    color: "#f3f3f6",
   },
-  scrollArea: {
-    flex: 1, overflowY: "auto" as const, overflowX: "hidden" as const,
-    padding: 16, minHeight: 0,
+  desktopSidebar: {
+    padding: "28px 22px",
+    borderRight: "1px solid rgba(255,255,255,0.06)",
+    background: "rgba(13,13,17,0.82)",
+    backdropFilter: "blur(18px)",
+    display: "flex",
+    flexDirection: "column",
+    justifyContent: "space-between",
+    minHeight: "100dvh",
   },
-  heroBadge: {
-    display: "inline-flex", alignItems: "center", gap: 7,
-    background: "rgba(255,184,74,0.1)", border: "1px solid rgba(255,184,74,0.28)",
-    borderRadius: 100, padding: "5px 13px",
-    fontSize: "0.64rem", fontWeight: 700, letterSpacing: "0.1em", color: "#ffb84a",
-    marginBottom: 16,
+  logoWrap: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 4,
+    marginBottom: 28,
   },
-  heroDot: {
-    display: "inline-block", width: 7, height: 7, borderRadius: "50%",
-    background: "#ffb84a", animation: "blink 1.4s infinite",
+  logoText: {
+    fontSize: "2rem",
+    fontWeight: 800,
+    letterSpacing: "-0.06em",
+    color: "#fafafe",
+  },
+  logoDot: {
+    color: "#b58cff",
+    fontSize: "1.8rem",
+    lineHeight: 1,
+  },
+  desktopNavGroup: {
+    display: "grid",
+    gap: 10,
+  },
+  desktopNavItem: {
+    display: "flex",
+    alignItems: "center",
+    gap: 12,
+    padding: "14px 14px",
+    borderRadius: 18,
+    border: "1px solid rgba(255,255,255,0.04)",
+    background: "rgba(255,255,255,0.02)",
+    color: "rgba(255,255,255,0.68)",
+    fontWeight: 700,
+    fontSize: "0.95rem",
+    textAlign: "left",
+    position: "relative",
+  },
+  desktopNavItemActive: {
+    background: "rgba(181,140,255,0.12)",
+    color: "#f4efff",
+    border: "1px solid rgba(181,140,255,0.18)",
+  },
+  desktopNavIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    display: "grid",
+    placeItems: "center",
+    background: "rgba(255,255,255,0.05)",
+  },
+  desktopNavBadge: {
+    marginLeft: "auto",
+    minWidth: 22,
+    height: 22,
+    borderRadius: 999,
+    display: "grid",
+    placeItems: "center",
+    fontSize: "0.72rem",
+    fontWeight: 800,
+    background: "#b58cff",
+    color: "#140f1b",
+    padding: "0 6px",
+  },
+  desktopSidebarFoot: {
+    display: "grid",
+    gap: 6,
+  },
+  smallMeta: {
+    fontSize: "0.92rem",
+    fontWeight: 700,
+    color: "#f5f5f8",
+  },
+  smallMetaMuted: {
+    fontSize: "0.82rem",
+    lineHeight: 1.5,
+    color: "rgba(255,255,255,0.38)",
+  },
+  mobileNav: {
+    position: "fixed",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 15,
+    display: "grid",
+    gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+    gap: 8,
+    padding: "10px 14px calc(10px + env(safe-area-inset-bottom, 0px))",
+    background: "rgba(9,9,12,0.96)",
+    borderTop: "1px solid rgba(255,255,255,0.06)",
+    backdropFilter: "blur(14px)",
+  },
+  mobileNavItem: {
+    position: "relative",
+    background: "transparent",
+    border: "none",
+    display: "grid",
+    justifyItems: "center",
+    gap: 6,
+    fontSize: "0.68rem",
+    fontWeight: 700,
+    textTransform: "uppercase",
+    letterSpacing: "0.05em",
+  },
+  mobileNavIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    display: "grid",
+    placeItems: "center",
+    background: "rgba(255,255,255,0.03)",
+    border: "1px solid rgba(255,255,255,0.05)",
+  },
+  mobileNavIconActive: {
+    background: "rgba(181,140,255,0.14)",
+    border: "1px solid rgba(181,140,255,0.22)",
+  },
+  mobileNavBadge: {
+    position: "absolute",
+    top: 0,
+    right: "calc(50% - 18px)",
+    minWidth: 17,
+    height: 17,
+    borderRadius: 999,
+    display: "grid",
+    placeItems: "center",
+    background: "#b58cff",
+    color: "#15111c",
+    fontSize: "0.6rem",
+    fontWeight: 800,
+    padding: "0 4px",
+  },
+  mainShell: {
+    minWidth: 0,
+    minHeight: "100dvh",
+    display: "flex",
+    flexDirection: "column",
+  },
+  topBar: {
+    padding: "24px 24px 18px",
+    borderBottom: "1px solid rgba(255,255,255,0.05)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 16,
+    background: "rgba(10,10,14,0.72)",
+    backdropFilter: "blur(14px)",
+    position: "sticky",
+    top: 0,
+    zIndex: 10,
+  },
+  topTitle: {
+    fontSize: "1.24rem",
+    fontWeight: 800,
+    letterSpacing: "-0.04em",
+    color: "#fafafe",
+  },
+  topSubtitle: {
+    fontSize: "0.72rem",
+    fontWeight: 800,
+    letterSpacing: "0.12em",
+    textTransform: "uppercase",
+    color: "#b58cff",
+    marginTop: 3,
+  },
+  iconButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 14,
+    display: "grid",
+    placeItems: "center",
+    background: "rgba(255,255,255,0.04)",
+    border: "1px solid rgba(255,255,255,0.07)",
+    color: "#f4f4f8",
+    flexShrink: 0,
+  },
+  profileChip: {
+    width: 42,
+    height: 42,
+    borderRadius: "50%",
+    background: "rgba(181,140,255,0.16)",
+    border: "1px solid rgba(181,140,255,0.18)",
+    color: "#ddcfff",
+    fontWeight: 800,
+    fontSize: "0.9rem",
+  },
+  pageScroll: {
+    flex: 1,
+    minHeight: 0,
+    overflowY: "auto",
+    padding: "24px",
+    paddingBottom: "max(24px, env(safe-area-inset-bottom, 0px))",
+  },
+  homeGrid: {
+    display: "grid",
+    gridTemplateColumns: "minmax(0, 1.6fr) minmax(280px, 0.9fr)",
+    gap: 20,
+    marginBottom: 20,
+  },
+  heroPanel: {
+    padding: "30px",
+    borderRadius: 28,
+    background:
+      "radial-gradient(circle at top right, rgba(181,140,255,0.16), transparent 30%), linear-gradient(135deg, rgba(23,23,29,0.96) 0%, rgba(15,15,18,0.98) 100%)",
+    border: "1px solid rgba(255,255,255,0.06)",
+    boxShadow: "0 30px 60px rgba(0,0,0,0.26)",
+  },
+  badge: {
+    color: "#b58cff",
+    fontSize: "0.72rem",
+    fontWeight: 800,
+    letterSpacing: "0.16em",
+    marginBottom: 18,
   },
   heroTitle: {
-    fontSize: "1.5rem", fontWeight: 800, lineHeight: 1.22,
-    color: "#fff", margin: "0", letterSpacing: "-0.02em",
+    margin: 0,
+    fontSize: "clamp(2rem, 4vw, 3.8rem)",
+    lineHeight: 0.98,
+    fontWeight: 800,
+    letterSpacing: "-0.07em",
+    color: "#fafafe",
   },
-  heroCta: {
-    display: "inline-flex", alignItems: "center", gap: 8,
-    background: "linear-gradient(135deg, #ffb84a, #ff8c42)",
-    color: "#1a0e00", fontWeight: 700, fontSize: "0.88rem",
-    padding: "12px 22px", borderRadius: 100, border: "none", cursor: "pointer",
-    boxShadow: "0 4px 18px rgba(255,140,66,0.35)",
+  heroCopy: {
+    margin: "18px 0 0",
+    maxWidth: 560,
+    color: "rgba(255,255,255,0.52)",
+    fontSize: "1rem",
+    lineHeight: 1.7,
   },
-  section: { marginBottom: 22 },
-  sectionHead: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 },
-  sectionTitle: { fontSize: "0.92rem", fontWeight: 700, color: "#fff" },
-  sectionLink: {
-    fontSize: "0.78rem", fontWeight: 600, color: "#ffb84a",
-    background: "none", border: "none", cursor: "pointer", padding: 0,
+  heroActions: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: 12,
+    marginTop: 26,
   },
-  emptyCard: {
-    background: "rgba(255,255,255,0.03)", border: "1px dashed rgba(255,255,255,0.1)",
-    borderRadius: 13, padding: 18, color: "rgba(255,255,255,0.3)",
-    fontSize: "0.82rem", textAlign: "center" as const,
+  primaryAction: {
+    minHeight: 50,
+    padding: "0 18px",
+    borderRadius: 16,
+    border: "none",
+    background: "linear-gradient(135deg, #b58cff 0%, #9d70ff 100%)",
+    color: "#17121d",
+    fontWeight: 800,
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 9,
   },
-  iconBtn: {
-    width: 34, height: 34, borderRadius: 9,
-    background: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.1)",
-    display: "flex", alignItems: "center", justifyContent: "center",
-    color: "rgba(255,255,255,0.7)", cursor: "pointer",
-  },
-  topAvatar: {
-    width: 32, height: 32, borderRadius: "50%",
-    background: "linear-gradient(135deg, #ffb84a, #ff8c42)",
-    display: "flex", alignItems: "center", justifyContent: "center",
-    fontSize: "0.82rem", fontWeight: 800, color: "#1a0e00", cursor: "pointer",
-    border: "2px solid rgba(255,184,74,0.3)",
-  },
-  filterInput: {
-    width: "100%", padding: "9px 13px", borderRadius: 11,
-    border: "1px solid rgba(255,255,255,0.1)", background: "rgba(255,255,255,0.05)",
-    color: "#fff", outline: "none", boxSizing: "border-box" as const,
-  },
-  compIcon: {
-    width: 36, height: 36, borderRadius: 10, flexShrink: 0,
-    background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.09)",
-    display: "flex", alignItems: "center", justifyContent: "center",
-    color: "rgba(255,255,255,0.55)", cursor: "pointer",
-  },
-  compInput: {
-    flex: 1, background: "rgba(255,255,255,0.07)",
-    border: "1px solid rgba(255,255,255,0.1)", borderRadius: 12,
-    padding: "9px 13px", color: "#fff", outline: "none", minWidth: 0,
-  },
-  panel: {
+  secondaryAction: {
+    minHeight: 50,
+    padding: "0 18px",
+    borderRadius: 16,
+    border: "1px solid rgba(255,255,255,0.08)",
     background: "rgba(255,255,255,0.03)",
-    border: "1px solid rgba(255,255,255,0.07)", borderRadius: 16, overflow: "hidden",
+    color: "#f5f3fb",
+    fontWeight: 700,
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 9,
   },
-  panelHead: {
-    padding: "13px 16px 11px", borderBottom: "1px solid rgba(255,255,255,0.05)",
-    display: "flex", alignItems: "center", justifyContent: "space-between",
+  statsPanel: {
+    display: "grid",
+    gridTemplateColumns: "1fr",
+    gap: 12,
   },
-  panelTitle: { fontSize: "0.88rem", fontWeight: 700, color: "#fff" },
-  panelCount: { fontSize: "0.73rem", color: "rgba(255,255,255,0.3)" },
-  panelItem: {
-    display: "flex", alignItems: "center", gap: 12, padding: "12px 16px",
-    borderBottom: "1px solid rgba(255,255,255,0.04)",
+  statBox: {
+    padding: "22px 18px",
+    borderRadius: 24,
+    border: "1px solid rgba(255,255,255,0.06)",
+    background: "rgba(255,255,255,0.03)",
+    display: "grid",
+    alignContent: "center",
+    minHeight: 112,
   },
-  callOverlay: {
-    position: "fixed" as const, inset: 0, zIndex: 99999,
-    background: "rgba(8,12,20,0.98)", backdropFilter: "blur(20px)",
-    WebkitBackdropFilter: "blur(20px)",
-    display: "flex", flexDirection: "column" as const,
-    alignItems: "center", justifyContent: "center",
+  statValue: {
+    fontSize: "2rem",
+    lineHeight: 1,
+    marginBottom: 8,
+    color: "#fafafe",
+    fontWeight: 800,
+    letterSpacing: "-0.05em",
   },
-  callAvatar: {
-    width: 96, height: 96, borderRadius: "50%",
-    background: "linear-gradient(135deg, #4ee1b7, #1b8a6b)",
-    display: "flex", alignItems: "center", justifyContent: "center",
-    fontSize: "2.4rem", fontWeight: 800, color: "#fff", marginBottom: 20,
+  statLabel: {
+    fontSize: "0.8rem",
+    fontWeight: 800,
+    letterSpacing: "0.1em",
   },
-  callEndBtn: {
-    marginTop: 32, background: "rgba(255,70,70,0.88)",
-    padding: "12px 28px", borderRadius: 100, border: "none",
-    color: "#fff", cursor: "pointer", fontSize: "0.9rem", fontWeight: 600,
-    display: "flex", alignItems: "center", gap: 8,
+  dualGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+    gap: 20,
+  },
+  sectionPanel: {
+    padding: "22px",
+    borderRadius: 26,
+    border: "1px solid rgba(255,255,255,0.06)",
+    background: "rgba(15,15,19,0.92)",
+    display: "flex",
+    flexDirection: "column",
+    gap: 16,
+  },
+  sectionHead: {
+    display: "flex",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  sectionEyebrow: {
+    color: "rgba(255,255,255,0.28)",
+    fontSize: "0.72rem",
+    fontWeight: 800,
+    letterSpacing: "0.14em",
+    textTransform: "uppercase",
+  },
+  sectionHeading: {
+    margin: "8px 0 0",
+    fontSize: "1.35rem",
+    lineHeight: 1.05,
+    fontWeight: 800,
+    letterSpacing: "-0.04em",
+    color: "#f8f8fb",
+  },
+  inlineLink: {
+    background: "none",
+    border: "none",
+    color: "#b58cff",
+    fontWeight: 700,
+    padding: 0,
+    whiteSpace: "nowrap",
+  },
+  livePill: {
+    padding: "8px 12px",
+    borderRadius: 999,
+    background: "rgba(35,217,104,0.08)",
+    color: "#23d968",
+    fontSize: "0.74rem",
+    fontWeight: 800,
+  },
+  cardList: {
+    display: "grid",
+    gap: 12,
+  },
+  memberCard: {
+    display: "flex",
+    alignItems: "center",
+    gap: 14,
+    padding: "16px",
+    borderRadius: 20,
+    background: "rgba(255,255,255,0.03)",
+    border: "1px solid rgba(255,255,255,0.05)",
+  },
+  memberCardCompact: {
+    padding: "14px 15px",
+  },
+  memberName: {
+    fontSize: "0.98rem",
+    fontWeight: 700,
+    color: "#f7f7fb",
+    marginBottom: 4,
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+  },
+  memberSubtitle: {
+    fontSize: "0.82rem",
+    color: "rgba(255,255,255,0.42)",
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+  },
+  actionCircle: {
+    width: 40,
+    height: 40,
+    borderRadius: "50%",
+    border: "1px solid rgba(181,140,255,0.18)",
+    background: "rgba(181,140,255,0.1)",
+    color: "#d5c3ff",
+    display: "grid",
+    placeItems: "center",
+    flexShrink: 0,
+  },
+  threadPreview: {
+    display: "flex",
+    alignItems: "center",
+    gap: 14,
+    padding: "14px 16px",
+    borderRadius: 18,
+    background: "rgba(255,255,255,0.03)",
+    border: "1px solid rgba(255,255,255,0.05)",
+    color: "inherit",
+    width: "100%",
+  },
+  threadName: {
+    fontSize: "0.95rem",
+    fontWeight: 700,
+    color: "#f7f7fb",
+    marginBottom: 4,
+  },
+  threadCopy: {
+    fontSize: "0.82rem",
+    color: "rgba(255,255,255,0.4)",
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+  },
+  threadBadge: {
+    minWidth: 24,
+    height: 24,
+    borderRadius: 999,
+    background: "#b58cff",
+    color: "#15111c",
+    display: "grid",
+    placeItems: "center",
+    padding: "0 6px",
+    fontSize: "0.7rem",
+    fontWeight: 800,
+    flexShrink: 0,
+  },
+  emptyState: {
+    padding: "20px 16px",
+    borderRadius: 18,
+    background: "rgba(255,255,255,0.03)",
+    border: "1px dashed rgba(255,255,255,0.08)",
+    color: "rgba(255,255,255,0.44)",
+    lineHeight: 1.6,
+    textAlign: "center",
+  },
+  searchWrap: {
+    position: "relative",
+  },
+  searchIcon: {
+    position: "absolute",
+    top: "50%",
+    left: 14,
+    transform: "translateY(-50%)",
+    color: "rgba(255,255,255,0.3)",
+    pointerEvents: "none",
+  },
+  searchInput: {
+    width: "100%",
+    height: 52,
+    borderRadius: 16,
+    border: "1px solid rgba(255,255,255,0.07)",
+    background: "rgba(255,255,255,0.03)",
+    color: "#f7f7fb",
+    padding: "0 16px 0 42px",
+    outline: "none",
+    fontSize: "0.95rem",
+  },
+  filterWrap: {
+    display: "flex",
+    gap: 10,
+    flexWrap: "wrap",
+  },
+  filterChip: {
+    height: 36,
+    padding: "0 15px",
+    borderRadius: 999,
+    border: "1px solid rgba(255,255,255,0.06)",
+    background: "rgba(255,255,255,0.03)",
+    color: "rgba(255,255,255,0.7)",
+    fontWeight: 700,
+  },
+  filterChipActive: {
+    background: "linear-gradient(135deg, #b58cff 0%, #9d70ff 100%)",
+    color: "#17121d",
+    border: "none",
+  },
+  discoverGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+    gap: 12,
+  },
+  discoverCard: {
+    display: "flex",
+    alignItems: "center",
+    gap: 14,
+    padding: "16px",
+    borderRadius: 20,
+    background: "rgba(255,255,255,0.03)",
+    border: "1px solid rgba(255,255,255,0.05)",
+  },
+  metaInline: {
+    marginTop: 8,
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
+    color: "#b58cff",
+    fontSize: "0.75rem",
+    fontWeight: 700,
+  },
+  messagesLayout: {
+    display: "grid",
+    gridTemplateColumns: "minmax(0, 1.2fr) minmax(280px, 0.8fr)",
+    gap: 20,
+  },
+  requestNotice: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    padding: "14px 16px",
+    borderRadius: 18,
+    background: "rgba(181,140,255,0.08)",
+    border: "1px solid rgba(181,140,255,0.14)",
+  },
+  noticeTextBlock: {
+    display: "grid",
+    gap: 4,
+    color: "#f5f0ff",
+    fontSize: "0.88rem",
+  },
+  noticeButton: {
+    minHeight: 38,
+    padding: "0 14px",
+    borderRadius: 12,
+    border: "none",
+    background: "#f5efff",
+    color: "#18121f",
+    fontWeight: 800,
+    flexShrink: 0,
+  },
+  threadRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 14,
+    padding: "14px 16px",
+    borderRadius: 18,
+    background: "rgba(255,255,255,0.03)",
+    border: "1px solid rgba(255,255,255,0.05)",
+    width: "100%",
+    color: "inherit",
+  },
+  previewCard: {
+    flex: 1,
+    borderRadius: 22,
+    background: "rgba(255,255,255,0.03)",
+    border: "1px solid rgba(255,255,255,0.05)",
+    display: "grid",
+    justifyItems: "center",
+    alignContent: "center",
+    gap: 10,
+    textAlign: "center",
+    padding: "26px 20px",
+  },
+  previewTitle: {
+    fontSize: "1.2rem",
+    fontWeight: 800,
+    letterSpacing: "-0.04em",
+    color: "#fafafe",
+  },
+  previewSubtitle: {
+    color: "rgba(255,255,255,0.42)",
+    lineHeight: 1.55,
+  },
+  chatShell: {
+    flex: 1,
+    minHeight: 0,
+    display: "grid",
+    gridTemplateColumns: "minmax(0, 1.2fr) minmax(260px, 0.55fr)",
+    gap: 20,
+    padding: "24px",
+  },
+  chatPanel: {
+    minHeight: 0,
+    display: "flex",
+    flexDirection: "column",
+    borderRadius: 26,
+    border: "1px solid rgba(255,255,255,0.06)",
+    background: "rgba(15,15,19,0.92)",
+    overflow: "hidden",
+  },
+  chatMessages: {
+    flex: 1,
+    minHeight: 0,
+    overflowY: "auto",
+    padding: "22px",
+    display: "grid",
+    gap: 12,
+    background:
+      "radial-gradient(circle at top, rgba(181,140,255,0.07), transparent 24%), rgba(15,15,19,0.92)",
+  },
+  chatBubble: {
+    maxWidth: "72%",
+    padding: "13px 15px",
+    borderRadius: 20,
+  },
+  chatBubbleMine: {
+    background: "linear-gradient(135deg, #b58cff 0%, #9d70ff 100%)",
+    color: "#17121d",
+    borderTopRightRadius: 8,
+  },
+  chatBubbleOther: {
+    background: "rgba(255,255,255,0.06)",
+    color: "#f3f3f6",
+    borderTopLeftRadius: 8,
+  },
+  chatText: {
+    fontSize: "0.94rem",
+    lineHeight: 1.6,
+    wordBreak: "break-word",
+  },
+  chatMeta: {
+    marginTop: 8,
+    display: "flex",
+    justifyContent: "flex-end",
+    gap: 4,
+    fontSize: "0.66rem",
+    opacity: 0.65,
+    alignItems: "center",
+  },
+  chatImage: {
+    width: "100%",
+    maxWidth: 260,
+    borderRadius: 14,
+    display: "block",
+    marginBottom: 10,
+  },
+  typingBubble: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 5,
+    padding: "11px 13px",
+    borderRadius: 16,
+    background: "rgba(255,255,255,0.06)",
+  },
+  typingDot: {
+    width: 7,
+    height: 7,
+    borderRadius: "50%",
+    background: "rgba(255,255,255,0.8)",
+    animation: "dashboardTyping 1s infinite",
+  },
+  imagePreviewRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    padding: "0 22px 12px",
+  },
+  imagePreview: {
+    width: 58,
+    height: 58,
+    borderRadius: 14,
+    objectFit: "cover",
+    border: "1px solid rgba(255,255,255,0.06)",
+  },
+  closePreview: {
+    width: 28,
+    height: 28,
+    borderRadius: "50%",
+    background: "rgba(255,255,255,0.08)",
+    border: "none",
+    color: "#f5f5f8",
+    display: "grid",
+    placeItems: "center",
+  },
+  composer: {
+    display: "grid",
+    gridTemplateColumns: "40px minmax(0, 1fr) 44px",
+    gap: 10,
+    padding: "0 22px 22px",
+    alignItems: "center",
+  },
+  composerInput: {
+    width: "100%",
+    minWidth: 0,
+    height: 48,
+    borderRadius: 16,
+    border: "1px solid rgba(255,255,255,0.07)",
+    background: "rgba(255,255,255,0.04)",
+    color: "#f7f7fb",
+    padding: "0 15px",
+    outline: "none",
+    fontSize: "16px",
+  },
+  sendButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    border: "none",
+    background: "linear-gradient(135deg, #b58cff 0%, #9d70ff 100%)",
+    color: "#17121d",
+    display: "grid",
+    placeItems: "center",
+  },
+  chatInfoPanel: {
+    minHeight: 0,
+  },
+  callStage: {
+    flex: 1,
+    position: "relative",
+    background: "#000",
+    minHeight: 0,
+  },
+  endCallButton: {
+    position: "absolute",
+    right: 16,
+    bottom: 16,
+    zIndex: 2,
+    minHeight: 42,
+    padding: "0 16px",
+    borderRadius: 999,
+    border: "none",
+    background: "#ff5d5d",
+    color: "#fff",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 8,
+    fontWeight: 800,
+  },
+  profileLayout: {
+    display: "grid",
+    gridTemplateColumns: "minmax(320px, 0.85fr) minmax(0, 1fr) minmax(0, 1fr)",
+    gap: 20,
+  },
+  profileHero: {
+    padding: "28px 24px",
+    borderRadius: 28,
+    background:
+      "radial-gradient(circle at top, rgba(181,140,255,0.18), transparent 34%), rgba(15,15,19,0.92)",
+    border: "1px solid rgba(255,255,255,0.06)",
+    display: "grid",
+    justifyItems: "center",
+    alignContent: "start",
+    gap: 12,
+    textAlign: "center",
+  },
+  profileHalo: {
+    width: 150,
+    height: 150,
+    borderRadius: "50%",
+    display: "grid",
+    placeItems: "center",
+    background: "radial-gradient(circle, rgba(181,140,255,0.18), rgba(181,140,255,0.04) 72%)",
+  },
+  profileName: {
+    margin: 0,
+    fontSize: "2rem",
+    fontWeight: 800,
+    letterSpacing: "-0.05em",
+    color: "#fafafe",
+  },
+  profileHandle: {
+    color: "rgba(255,255,255,0.34)",
+    fontWeight: 800,
+    fontSize: "0.86rem",
+    letterSpacing: "0.06em",
+  },
+  profileStatsGrid: {
+    width: "100%",
+    display: "grid",
+    gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+    gap: 10,
+    marginTop: 8,
+  },
+  infoCard: {
+    padding: "18px",
+    borderRadius: 20,
+    background: "rgba(255,255,255,0.03)",
+    border: "1px solid rgba(255,255,255,0.05)",
+  },
+  infoHead: {
+    display: "flex",
+    alignItems: "flex-start",
+    gap: 10,
+    marginBottom: 12,
+  },
+  infoTitle: {
+    fontSize: "0.96rem",
+    fontWeight: 700,
+    color: "#f7f7fb",
+    marginBottom: 4,
+  },
+  infoCaption: {
+    fontSize: "0.8rem",
+    color: "rgba(255,255,255,0.4)",
+  },
+  infoParagraph: {
+    margin: 0,
+    color: "rgba(255,255,255,0.62)",
+    lineHeight: 1.7,
+  },
+  acceptButton: {
+    minHeight: 36,
+    padding: "0 14px",
+    borderRadius: 12,
+    border: "none",
+    background: "linear-gradient(135deg, #b58cff 0%, #9d70ff 100%)",
+    color: "#17121d",
+    fontWeight: 800,
+  },
+  infoRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    padding: "14px 16px",
+    borderRadius: 16,
+    background: "rgba(255,255,255,0.03)",
+    border: "1px solid rgba(255,255,255,0.05)",
+    color: "rgba(255,255,255,0.62)",
+  },
+  blockedRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 12,
+    padding: "14px 16px",
+    borderRadius: 16,
+    background: "rgba(255,255,255,0.03)",
+    border: "1px solid rgba(255,255,255,0.05)",
+  },
+  ghostAction: {
+    minHeight: 38,
+    padding: "0 12px",
+    borderRadius: 12,
+    border: "1px solid rgba(255,255,255,0.08)",
+    background: "rgba(255,255,255,0.03)",
+    color: "#f7f7fb",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 7,
+    fontWeight: 700,
+    flexShrink: 0,
+  },
+  logoutButton: {
+    marginTop: "auto",
+    minHeight: 48,
+    borderRadius: 16,
+    border: "1px solid rgba(255,92,92,0.18)",
+    background: "rgba(255,92,92,0.08)",
+    color: "#ff9090",
+    fontWeight: 800,
+  },
+  overlay: {
+    position: "fixed",
+    inset: 0,
+    zIndex: 50,
+    background: "rgba(8,8,12,0.9)",
+    backdropFilter: "blur(18px)",
+    display: "grid",
+    placeItems: "center",
+    gap: 14,
+    textAlign: "center",
+    padding: 20,
+  },
+  overlayTitle: {
+    fontSize: "1.55rem",
+    fontWeight: 800,
+    letterSpacing: "-0.04em",
+    color: "#fafafe",
+  },
+  overlayText: {
+    color: "rgba(255,255,255,0.5)",
+    fontSize: "0.92rem",
+  },
+  overlayDanger: {
+    minHeight: 46,
+    padding: "0 18px",
+    borderRadius: 999,
+    border: "none",
+    background: "#ff5d5d",
+    color: "#fff",
+    fontWeight: 800,
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 8,
+  },
+  overlayRoundDanger: {
+    width: 58,
+    height: 58,
+    borderRadius: "50%",
+    border: "none",
+    background: "#ff5d5d",
+    color: "#fff",
+    display: "grid",
+    placeItems: "center",
+  },
+  overlayRoundAccept: {
+    width: 58,
+    height: 58,
+    borderRadius: "50%",
+    border: "none",
+    background: "#29d96f",
+    color: "#0f1612",
+    display: "grid",
+    placeItems: "center",
+  },
+  onlineDot: {
+    position: "absolute",
+    right: 1,
+    bottom: 1,
+    width: 12,
+    height: 12,
+    borderRadius: "50%",
+    background: "#29d96f",
+    border: "2px solid #121217",
   },
 };
