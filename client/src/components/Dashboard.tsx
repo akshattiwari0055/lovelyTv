@@ -5,6 +5,10 @@
  *  2. Unread badge logic → usersWithUnread counts distinct users, not total msgs
  *  3. Mark-as-read on chat open → setUnreadCounts zeroed on selection
  *  4. Re-render cascade → useCallback / useMemo everywhere appropriate
+ *  5. Keyboard jump on send → isSendingRef + 300ms lock, scroll delay 250ms
+ *  6. Scroll conflict → userAtBottomRef guards auto-scroll, send skips it
+ *  7. Viewport stabilization → #root overflow:hidden in GLOBAL_CSS
+ *  8. MessageList padding reduced to minimize vertical shift on keyboard open
  */
 
 import {
@@ -13,10 +17,10 @@ import {
 import React from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  ArrowLeft, Camera, Check, CheckCheck, Flame, Home, ImagePlus,
+  ArrowLeft, Camera, Check, CheckCheck, Home, ImagePlus,
   Lock, MessageCircle, Phone, Search, Send, ShieldBan,
   UserCircle2, UserPlus, Users, X, Zap, Bell, Grid3x3,
-  ChevronRight, Star, TrendingUp, Radio,
+  ChevronRight, Star, Radio,
 } from "lucide-react";
 import { api } from "../lib/api";
 import { connectSocket, disconnectSocket, getSocket } from "../lib/socket";
@@ -45,7 +49,20 @@ const GLOBAL_CSS = `
   @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Figtree:wght@300;400;500;600;700;800&display=swap');
 
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-  html, body { height: 100%; overflow: hidden; position: fixed; width: 100%; background: #060910; }
+
+  /* FIX #7: Stabilize viewport — prevents browser scroll-resize fights on mobile */
+  html, body {
+    height: 100%;
+    overflow: hidden;
+    position: fixed;
+    width: 100%;
+    background: #060910;
+  }
+  #root {
+    height: 100%;
+    overflow: hidden;
+  }
+
   ::-webkit-scrollbar { width: 4px; background: transparent; }
   ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 4px; }
   input, textarea, select { font-size: 15px !important; font-family: 'Figtree', sans-serif; }
@@ -397,7 +414,7 @@ const MessageBubble = React.memo(function MessageBubble({ msg, mine }: { msg: Me
 });
 
 // ─── MessageList ─────────────────────────────────────────────────────────────
-// Memoized so typing in the input doesn't re-render the entire message list
+// FIX #8: Reduced vertical padding to minimize layout shift when keyboard opens.
 const MessageList = React.memo(function MessageList({
   messages, userId, partnerTyping, bottomRef,
 }: {
@@ -409,7 +426,9 @@ const MessageList = React.memo(function MessageList({
   return (
     <div style={{
       flex: 1, overflowY: "auto", overflowX: "hidden",
-      padding: "20px 20px", display: "flex", flexDirection: "column",
+      // FIX #8: "16px 20px 8px" instead of "20px 20px" — less vertical shift on keyboard open
+      padding: "16px 20px 8px",
+      display: "flex", flexDirection: "column",
       gap: 4, minHeight: 0, background: C.bg,
     }}>
       {messages.length === 0
@@ -449,9 +468,6 @@ const MessageList = React.memo(function MessageList({
 });
 
 // ─── ChatInput ────────────────────────────────────────────────────────────────
-// FIX #1: Extracted into its own memoized component so that parent state changes
-// (messages, partnerTyping, unreadCounts, etc.) never cause this to re-mount or
-// lose focus. The ref and stable callbacks guarantee zero blur on every keystroke.
 interface ChatInputProps {
   value: string;
   imagePreview: string | null;
@@ -464,17 +480,10 @@ interface ChatInputProps {
 }
 
 const ChatInput = React.memo(function ChatInput({
-  value,
-  imagePreview,
-  inputRef,
-  fileRef,
-  onChange,
-  onSend,
-  onImageUpload,
-  onClearImage,
+  value, imagePreview, inputRef, fileRef,
+  onChange, onSend, onImageUpload, onClearImage,
 }: ChatInputProps) {
   const hasContent = value.trim() || imagePreview;
-
   return (
     <>
       {imagePreview && (
@@ -485,15 +494,11 @@ const ChatInput = React.memo(function ChatInput({
           background: C.surfaceAlt,
         }}>
           <img src={imagePreview} alt="preview" style={{ height: 52, borderRadius: 8, objectFit: "cover" }} />
-          <button
-            type="button"
-            onClick={onClearImage}
-            style={{
-              width: 22, height: 22, borderRadius: "50%", background: "#ef4444",
-              border: "none", color: "#fff", cursor: "pointer",
-              display: "flex", alignItems: "center", justifyContent: "center",
-            }}
-          >
+          <button type="button" onClick={onClearImage} style={{
+            width: 22, height: 22, borderRadius: "50%", background: "#ef4444",
+            border: "none", color: "#fff", cursor: "pointer",
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}>
             <X size={11} />
           </button>
         </div>
@@ -509,33 +514,21 @@ const ChatInput = React.memo(function ChatInput({
           background: C.bg,
         }}
       >
-        <input
-          type="file"
-          accept="image/*"
-          style={{ display: "none" }}
-          ref={fileRef}
-          onChange={onImageUpload}
-        />
-        <button
-          type="button"
-          onClick={() => fileRef.current?.click()}
-          style={{
-            width: 38, height: 38, borderRadius: 10, flexShrink: 0,
-            background: C.surfaceAlt, border: `1px solid ${C.border}`,
-            display: "flex", alignItems: "center", justifyContent: "center",
-            color: C.textMuted, cursor: "pointer",
-          }}
-        >
+        <input type="file" accept="image/*" style={{ display: "none" }} ref={fileRef} onChange={onImageUpload} />
+        <button type="button" onClick={() => fileRef.current?.click()} style={{
+          width: 38, height: 38, borderRadius: 10, flexShrink: 0,
+          background: C.surfaceAlt, border: `1px solid ${C.border}`,
+          display: "flex", alignItems: "center", justifyContent: "center",
+          color: C.textMuted, cursor: "pointer",
+        }}>
           <ImagePlus size={15} />
         </button>
         <input
           ref={inputRef}
           style={{
-            flex: 1, background: C.surfaceAlt,
-            border: `1px solid ${C.border}`,
+            flex: 1, background: C.surfaceAlt, border: `1px solid ${C.border}`,
             borderRadius: 12, padding: "10px 14px",
-            color: C.text, outline: "none", minWidth: 0,
-            fontFamily: FONT_BODY,
+            color: C.text, outline: "none", minWidth: 0, fontFamily: FONT_BODY,
             transition: "border-color 0.2s",
           }}
           onFocus={e => e.currentTarget.style.borderColor = C.borderGlow}
@@ -543,27 +536,16 @@ const ChatInput = React.memo(function ChatInput({
           placeholder="Message…"
           value={value}
           onChange={onChange}
-          autoComplete="off"
-          autoCorrect="off"
-          spellCheck={false}
-          enterKeyHint="send"
+          autoComplete="off" autoCorrect="off" spellCheck={false} enterKeyHint="send"
         />
-        <button
-          type="submit"
-          className="send-btn"
-          disabled={!hasContent}
-          style={{
-            width: 38, height: 38, borderRadius: 10, flexShrink: 0,
-            background: hasContent
-              ? "linear-gradient(135deg, #6d28d9, #8b5cf6)"
-              : C.surfaceAlt,
-            border: hasContent ? "none" : `1px solid ${C.border}`,
-            display: "flex", alignItems: "center", justifyContent: "center",
-            color: hasContent ? "#fff" : C.textDim,
-            cursor: hasContent ? "pointer" : "default",
-            transition: "all 0.2s",
-          }}
-        >
+        <button type="submit" className="send-btn" disabled={!hasContent} style={{
+          width: 38, height: 38, borderRadius: 10, flexShrink: 0,
+          background: hasContent ? "linear-gradient(135deg, #6d28d9, #8b5cf6)" : C.surfaceAlt,
+          border: hasContent ? "none" : `1px solid ${C.border}`,
+          display: "flex", alignItems: "center", justifyContent: "center",
+          color: hasContent ? "#fff" : C.textDim,
+          cursor: hasContent ? "pointer" : "default", transition: "all 0.2s",
+        }}>
           <Send size={14} />
         </button>
       </form>
@@ -578,8 +560,13 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
   const typingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const compInputRef = useRef<HTMLInputElement>(null);
-  // Track typing state in a ref so the typing callback doesn't need to be recreated
   const isTypingRef = useRef(false);
+
+  // FIX #5 + #6: Sending lock prevents scroll-on-messages from firing during
+  // the keyboard animation. userAtBottomRef gates auto-scroll to only happen
+  // when the user is already near the bottom (no surprise jumps mid-scroll).
+  const isSendingRef = useRef(false);
+  const userAtBottomRef = useRef(true);
 
   const [zegoConfig, setZegoConfig] = useState<{ appId: number; serverSecret: string } | null>(null);
   const [activeCall, setActiveCall] = useState<{ roomId: string; isVideo: boolean } | null>(null);
@@ -608,7 +595,6 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
     typeof window !== "undefined" ? window.innerWidth >= 1024 : false
   );
 
-  // FIX #2: Count of distinct users with unread messages (not total unread messages)
   const usersWithUnread = useMemo(
     () => Object.values(unreadCounts).filter((c) => c > 0).length,
     [unreadCounts]
@@ -623,14 +609,12 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
     [discoverUsers, nameFilter]
   );
 
-  // ─── Socket ──────────────────────────────────────────────────────────────
-  // Use a stable ref for selectedFriend and conversationIsOpen to avoid
-  // re-registering socket listeners on every state change
   const selectedFriendRef = useRef(selectedFriend);
   const conversationIsOpenRef = useRef(conversationIsOpen);
   useEffect(() => { selectedFriendRef.current = selectedFriend; }, [selectedFriend]);
   useEffect(() => { conversationIsOpenRef.current = conversationIsOpen; }, [conversationIsOpen]);
 
+  // ─── Socket ──────────────────────────────────────────────────────────────
   useEffect(() => {
     const socket = connectSocket(token);
 
@@ -645,7 +629,6 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
         socket.emit("message:read", { messageIds: [msg.id], senderId: msg.senderId });
         setUnreadCounts((c) => ({ ...c, [msg.senderId]: 0 }));
       } else if (msg.senderId !== user.id) {
-        // FIX #2 cont.: Increment per-user count, cap at 99
         setUnreadCounts((c) => ({ ...c, [msg.senderId]: Math.min((c[msg.senderId] ?? 0) + 1, 99) }));
       }
     });
@@ -678,7 +661,6 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
         .forEach((e) => socket.off(e));
       disconnectSocket();
     };
-  // Only re-run when token or user.id changes — not on selectedFriend change
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, user.id]);
 
@@ -697,25 +679,31 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedFriend?.id, conversationIsOpen]);
 
-  const isNearBottom = useCallback(() => {
+  // FIX #6: Track scroll position without causing re-renders.
+  const handleMessageScroll = useCallback(() => {
     const el = bottomRef.current?.parentElement;
-    if (!el) return false;
-    return el.scrollHeight - el.scrollTop - el.clientHeight < 100;
+    if (!el) return;
+    userAtBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
   }, []);
 
+  // FIX #5 + #6: Guard both conditions before scrolling.
+  // Delay is 250ms (was 150ms) to let mobile keyboard finish animating first.
   useEffect(() => {
-    if (isNearBottom()) {
-      bottomRef.current?.scrollIntoView({ behavior: "auto" });
-    }
-  }, [messages]); // ← partnerTyping intentionally removed: typing indicator changes must not trigger scroll
+    if (isSendingRef.current) return;       // FIX #5: skip while send is locking
+    if (!userAtBottomRef.current) return;   // FIX #6: skip if user scrolled up
 
-  // FIX #1: Focus only when switching to a new friend, not on every render
-  useEffect(() => {
-    if (activeTab === "chat" && selectedFriend) {
-      const frame = requestAnimationFrame(() => compInputRef.current?.focus());
-      return () => cancelAnimationFrame(frame);
-    }
-  }, [activeTab, selectedFriend?.id]);
+    const timer = setTimeout(() => {
+      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    }, 250); // FIX #5: 250ms — matches actual keyboard animation duration
+
+    return () => clearTimeout(timer);
+  }, [messages]);
+
+useEffect(() => {
+  if (activeTab === "chat" && selectedFriend) {
+    compInputRef.current?.focus();
+  }
+}, [activeTab, selectedFriend?.id]);
 
   useEffect(() => {
     const onResize = () => setIsDesktop(window.innerWidth >= 1024);
@@ -739,8 +727,10 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
       getSocket()?.emit("message:read", { messageIds: unread, senderId: otherId });
       setMessages((c) => c.map((m) => unread.includes(m.id) ? { ...m, isRead: true } : m));
     }
-    // FIX #3: Zero out unread for this user when chat is opened
     setUnreadCounts((c) => ({ ...c, [otherId]: 0 }));
+    // Scroll to bottom immediately when a conversation loads
+    userAtBottomRef.current = true;
+    setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "auto" }), 50);
   }
 
   const sendFriendRequest = useCallback(async (id: string) => {
@@ -765,7 +755,6 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
     setSelectedFriend(friend);
     setMessages([]);
     setActiveTab("chat");
-    // FIX #3: Immediately zero unread badge when user taps the conversation
     setUnreadCounts((c) => ({ ...c, [friend.id]: 0 }));
   }, []);
 
@@ -796,15 +785,21 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
     setIncomingCall(null);
   }
 
-  // FIX #1 + #4: Stable send handler — wrapped in useCallback, selectedFriend
-  // accessed via ref so the callback identity never changes during a conversation
   const selectedFriendIdRef = useRef<string | undefined>(undefined);
   useEffect(() => { selectedFriendIdRef.current = selectedFriend?.id; }, [selectedFriend?.id]);
 
+  // FIX #5 (CORE): Lock scroll for 300ms on send (keyboard animation = ~250-300ms).
+  // We set isSendingRef BEFORE the state update so the messages useEffect that
+  // fires synchronously after cannot trigger a premature or conflicting scroll.
   const handleSend = useCallback((e: FormEvent) => {
     e.preventDefault();
     const friendId = selectedFriendIdRef.current;
     if (!friendId) return;
+
+    // Lock BEFORE state change — prevents the messages useEffect scroll
+    isSendingRef.current = true;
+    setTimeout(() => { isSendingRef.current = false; }, 300); // FIX #5: 300ms lock
+
     setMessageInput(prev => {
       if (!prev.trim() && !imagePreview) return prev;
       getSocket()?.emit("message:send", {
@@ -814,16 +809,16 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
       });
       getSocket()?.emit("typing:stop", { receiverId: friendId });
       setImagePreview(null);
-      requestAnimationFrame(() => compInputRef.current?.focus());
+      // Scroll after lock expires — keyboard is fully settled by then
+      setTimeout(() => {
+        userAtBottomRef.current = true;
+        bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+      }, 320); // FIX #5: 320ms — just after the 300ms lock releases
       return "";
     });
-  // imagePreview accessed from closure is fine since setMessageInput reads it via outer state
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // FIX #1 (CORE): Stable typing handler — useCallback with empty deps.
-  // Typing state tracked in a ref to avoid stale-closure issues without
-  // triggering re-renders or recreating this function.
   const handleTyping = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     setMessageInput(e.target.value);
     const friendId = selectedFriendIdRef.current;
@@ -837,7 +832,7 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
       isTypingRef.current = false;
       getSocket()?.emit("typing:stop", { receiverId: friendId });
     }, 2000);
-  }, []); // ← empty deps: function never recreated, input never re-mounts
+  }, []); // stable — never recreated
 
   const handleImgUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -849,197 +844,120 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
 
   const handleClearImage = useCallback(() => setImagePreview(null), []);
 
-  // ─── DESKTOP SIDEBAR ─────────────────────────────────────────────────────
+  // ─── Sidebar item renderer ────────────────────────────────────────────────
   function renderSidebarItem({ id, label, icon, badge }: { id: AppTab; label: string; icon: React.ReactNode; badge?: number }) {
     const active = id === "messages" ? (activeTab === "messages" || activeTab === "chat") : activeTab === id;
     return (
-      <button
-        className="sidebar-btn"
-        onClick={() => {
-          if (id === "messages") setSelectedFriend(null);
-          setActiveTab(id);
-        }}
-        style={{
-          display: "flex", alignItems: "center", gap: 12,
-          padding: "10px 14px", borderRadius: 11, width: "100%",
-          background: active ? "rgba(139,92,246,0.1)" : "transparent",
-          border: active ? `1px solid rgba(139,92,246,0.2)` : "1px solid transparent",
-          color: active ? C.accentBright : C.textMuted,
-          cursor: "pointer", textAlign: "left",
-          fontFamily: FONT_BODY, fontSize: "0.88rem", fontWeight: active ? 600 : 400,
-          transition: "all 0.15s", position: "relative",
-        }}
-      >
+      <button className="sidebar-btn" onClick={() => { if (id === "messages") setSelectedFriend(null); setActiveTab(id); }} style={{
+        display: "flex", alignItems: "center", gap: 12,
+        padding: "10px 14px", borderRadius: 11, width: "100%",
+        background: active ? "rgba(139,92,246,0.1)" : "transparent",
+        border: active ? `1px solid rgba(139,92,246,0.2)` : "1px solid transparent",
+        color: active ? C.accentBright : C.textMuted,
+        cursor: "pointer", textAlign: "left",
+        fontFamily: FONT_BODY, fontSize: "0.88rem", fontWeight: active ? 600 : 400,
+        transition: "all 0.15s", position: "relative",
+      }}>
         <span style={{ opacity: active ? 1 : 0.6 }}>{icon}</span>
         <span>{label}</span>
         {badge && badge > 0 ? (
-          <span style={{
-            marginLeft: "auto",
-            background: C.accentPink, color: "#fff",
-            fontSize: "0.6rem", fontWeight: 800,
-            padding: "1px 6px", borderRadius: 100,
-            fontFamily: FONT_DISPLAY,
-          }}>{badge > 99 ? "99+" : badge}</span>
+          <span style={{ marginLeft: "auto", background: C.accentPink, color: "#fff", fontSize: "0.6rem", fontWeight: 800, padding: "1px 6px", borderRadius: 100, fontFamily: FONT_DISPLAY }}>{badge > 99 ? "99+" : badge}</span>
         ) : null}
       </button>
     );
   }
 
-  // ─── CONTENT PANELS ──────────────────────────────────────────────────────
+  function renderSectionTitle({ title, action, onAction }: { title: string; action?: string; onAction?: () => void }) {
+    return (
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+        <h2 style={{ fontSize: "0.72rem", fontWeight: 700, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.14em", fontFamily: FONT_DISPLAY }}>{title}</h2>
+        {action && (
+          <button onClick={onAction} style={{ fontSize: "0.77rem", fontWeight: 600, color: C.accent, background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 4, fontFamily: FONT_BODY }}>
+            {action} <ChevronRight size={12} />
+          </button>
+        )}
+      </div>
+    );
+  }
 
-  function renderSectionTitle({ title, action, onAction }: { title: string; action?: string; onAction?: () => void }) { return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
-      <h2 style={{
-        fontSize: "0.72rem", fontWeight: 700, color: C.textDim,
-        textTransform: "uppercase", letterSpacing: "0.14em",
-        fontFamily: FONT_DISPLAY,
-      }}>{title}</h2>
-      {action && (
-        <button onClick={onAction} style={{
-          fontSize: "0.77rem", fontWeight: 600, color: C.accent,
-          background: "none", border: "none", cursor: "pointer",
-          display: "flex", alignItems: "center", gap: 4,
-          fontFamily: FONT_BODY,
-        }}>
-          {action} <ChevronRight size={12} />
-        </button>
-      )}
-    </div>
-  ); }
-
-  // Stable callbacks for friend-list chat opens (prevent ChatItem re-renders)
   const openChatCallbacks = useMemo(
     () => Object.fromEntries(friends.map(f => [f.id, () => openChat(f)])),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [friends.map(f => f.id).join(",")]
   );
 
-  function renderHomeContent() { return (
-    <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden", padding: isDesktop ? "32px 36px" : 20, minHeight: 0 }}>
-      <HeroCard onStartRandom={() => navigate("/app/random")} />
-      <div style={{
-        display: "grid",
-        gridTemplateColumns: isDesktop ? "1fr 1fr" : "1fr",
-        gap: 28,
-        alignItems: "start",
-        marginTop: 28,
-      }}>
-        <div>
-          {renderSectionTitle({ title: "Curated For You", action: "Discover all", onAction: () => setActiveTab("discover") })}
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            {discoverUsers.slice(0, 4).length === 0
-              ? (
-                <div style={{
-                  background: C.surfaceAlt, border: `1px dashed ${C.border}`, borderRadius: 14,
-                  padding: 24, textAlign: "center", color: C.textDim, fontSize: "0.84rem",
-                  fontFamily: FONT_BODY,
-                }}>No suggestions yet.</div>
-              )
-              : discoverUsers.slice(0, 4).map((u) => (
-                  <UserCard key={u.id} user={u} onAdd={() => void sendFriendRequest(u.id)} />
-                ))
-            }
-          </div>
-        </div>
-        <div>
-          {renderSectionTitle({ title: "Active Dialogue", action: "See all", onAction: () => setActiveTab("messages") })}
-          {friends.length > 0 && (
-            <div style={{ marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}>
-              <span style={{
-                width: 7, height: 7, borderRadius: "50%", background: C.accentGreen,
-                display: "inline-block", animation: "blink 1.5s infinite",
-              }} />
-              <span style={{ fontSize: "0.73rem", color: C.accentGreen, fontWeight: 600, fontFamily: FONT_BODY }}>
-                {friends.length} Online
-              </span>
+  // ─── Content renderers ───────────────────────────────────────────────────
+  function renderHomeContent() {
+    return (
+      <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden", padding: isDesktop ? "32px 36px" : 20, minHeight: 0 }}>
+        <HeroCard onStartRandom={() => navigate("/app/random")} />
+        <div style={{ display: "grid", gridTemplateColumns: isDesktop ? "1fr 1fr" : "1fr", gap: 28, alignItems: "start", marginTop: 28 }}>
+          <div>
+            {renderSectionTitle({ title: "Curated For You", action: "Discover all", onAction: () => setActiveTab("discover") })}
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {discoverUsers.slice(0, 4).length === 0
+                ? <div style={{ background: C.surfaceAlt, border: `1px dashed ${C.border}`, borderRadius: 14, padding: 24, textAlign: "center", color: C.textDim, fontSize: "0.84rem", fontFamily: FONT_BODY }}>No suggestions yet.</div>
+                : discoverUsers.slice(0, 4).map((u) => <UserCard key={u.id} user={u} onAdd={() => void sendFriendRequest(u.id)} />)
+              }
             </div>
-          )}
-          <div style={{
-            background: C.surfaceAlt,
-            border: `1px solid ${C.border}`,
-            borderRadius: 16, overflow: "hidden",
-          }}>
-            {friends.length === 0
-              ? (
-                <div style={{ padding: 24, textAlign: "center", color: C.textDim, fontSize: "0.84rem", fontFamily: FONT_BODY }}>
-                  Add friends to start chatting
-                </div>
-              )
-              : friends.slice(0, 6).map((f) => (
-                  <ChatItem key={f.id} friend={f}
-                    unread={unreadCounts[f.id] ?? 0}
-                    lastMsg={lastMessages[f.id]}
-                    onClick={openChatCallbacks[f.id] ?? (() => openChat(f))}
-                    compact
-                  />
-                ))
-            }
+          </div>
+          <div>
+            {renderSectionTitle({ title: "Active Dialogue", action: "See all", onAction: () => setActiveTab("messages") })}
+            {friends.length > 0 && (
+              <div style={{ marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{ width: 7, height: 7, borderRadius: "50%", background: C.accentGreen, display: "inline-block", animation: "blink 1.5s infinite" }} />
+                <span style={{ fontSize: "0.73rem", color: C.accentGreen, fontWeight: 600, fontFamily: FONT_BODY }}>{friends.length} Online</span>
+              </div>
+            )}
+            <div style={{ background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 16, overflow: "hidden" }}>
+              {friends.length === 0
+                ? <div style={{ padding: 24, textAlign: "center", color: C.textDim, fontSize: "0.84rem", fontFamily: FONT_BODY }}>Add friends to start chatting</div>
+                : friends.slice(0, 6).map((f) => (
+                    <ChatItem key={f.id} friend={f} unread={unreadCounts[f.id] ?? 0} lastMsg={lastMessages[f.id]} onClick={openChatCallbacks[f.id] ?? (() => openChat(f))} compact />
+                  ))
+              }
+            </div>
           </div>
         </div>
+        <div style={{ height: 32 }} />
       </div>
-      <div style={{ height: 32 }} />
-    </div>
-  ); }
+    );
+  }
 
-  function renderMessagesContent() { return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
-      <div style={{
-        padding: "20px 24px 16px",
-        borderBottom: `1px solid ${C.border}`,
-        flexShrink: 0,
-      }}>
-        <h2 style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, fontSize: "1.2rem", color: C.text, letterSpacing: "-0.02em" }}>Inbox</h2>
-        <p style={{ fontFamily: FONT_BODY, fontSize: "0.78rem", color: C.accentGreen, marginTop: 2, fontWeight: 500 }}>{friends.length} conversations</p>
-      </div>
-      {requests.length > 0 && (
-        <button onClick={() => setActiveTab("profile")} style={{
-          display: "flex", alignItems: "center", gap: 12, width: "100%",
-          padding: "12px 24px",
-          background: "rgba(139,92,246,0.05)",
-          border: "none", borderBottom: `1px solid rgba(139,92,246,0.12)`,
-          cursor: "pointer",
-        }}>
-          <div style={{
-            width: 36, height: 36, borderRadius: 10,
-            background: "rgba(139,92,246,0.1)",
-            display: "flex", alignItems: "center", justifyContent: "center",
-          }}>
-            <UserPlus size={15} color={C.accent} />
-          </div>
-          <div style={{ flex: 1, textAlign: "left" }}>
-            <div style={{ fontSize: "0.85rem", fontWeight: 700, color: C.accent, fontFamily: FONT_DISPLAY }}>
-              {requests.length} Friend Request{requests.length > 1 ? "s" : ""}
+  function renderMessagesContent() {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
+        <div style={{ padding: "20px 24px 16px", borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
+          <h2 style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, fontSize: "1.2rem", color: C.text, letterSpacing: "-0.02em" }}>Inbox</h2>
+          <p style={{ fontFamily: FONT_BODY, fontSize: "0.78rem", color: C.accentGreen, marginTop: 2, fontWeight: 500 }}>{friends.length} conversations</p>
+        </div>
+        {requests.length > 0 && (
+          <button onClick={() => setActiveTab("profile")} style={{ display: "flex", alignItems: "center", gap: 12, width: "100%", padding: "12px 24px", background: "rgba(139,92,246,0.05)", border: "none", borderBottom: `1px solid rgba(139,92,246,0.12)`, cursor: "pointer" }}>
+            <div style={{ width: 36, height: 36, borderRadius: 10, background: "rgba(139,92,246,0.1)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <UserPlus size={15} color={C.accent} />
             </div>
-            <div style={{ fontSize: "0.73rem", color: C.textDim, fontFamily: FONT_BODY }}>Tap to review</div>
-          </div>
-          <ChevronRight size={14} color={C.textDim} />
-        </button>
-      )}
-      <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden", minHeight: 0 }}>
-        {friends.length === 0
-          ? (
-            <div style={{ padding: 48, textAlign: "center", color: C.textDim, fontSize: "0.86rem", fontFamily: FONT_BODY }}>
-              No conversations yet. Discover and add friends!
+            <div style={{ flex: 1, textAlign: "left" }}>
+              <div style={{ fontSize: "0.85rem", fontWeight: 700, color: C.accent, fontFamily: FONT_DISPLAY }}>{requests.length} Friend Request{requests.length > 1 ? "s" : ""}</div>
+              <div style={{ fontSize: "0.73rem", color: C.textDim, fontFamily: FONT_BODY }}>Tap to review</div>
             </div>
-          )
-          : friends.map((f) => (
-              <ChatItem key={f.id} friend={f} active={selectedFriend?.id === f.id}
-                unread={unreadCounts[f.id] ?? 0}
-                lastMsg={lastMessages[f.id]}
-                onClick={openChatCallbacks[f.id] ?? (() => openChat(f))}
-              />
-            ))
-        }
+            <ChevronRight size={14} color={C.textDim} />
+          </button>
+        )}
+        <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden", minHeight: 0 }}>
+          {friends.length === 0
+            ? <div style={{ padding: 48, textAlign: "center", color: C.textDim, fontSize: "0.86rem", fontFamily: FONT_BODY }}>No conversations yet. Discover and add friends!</div>
+            : friends.map((f) => (
+                <ChatItem key={f.id} friend={f} active={selectedFriend?.id === f.id} unread={unreadCounts[f.id] ?? 0} lastMsg={lastMessages[f.id]} onClick={openChatCallbacks[f.id] ?? (() => openChat(f))} />
+              ))
+          }
+        </div>
       </div>
-    </div>
-  ); }
+    );
+  }
 
   function renderChatContent() {
     if (!selectedFriend) return (
-      <div style={{
-        flex: 1, display: "flex", alignItems: "center", justifyContent: "center",
-        flexDirection: "column", gap: 12, color: C.textDim,
-      }}>
+      <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 12, color: C.textDim }}>
         <MessageCircle size={40} style={{ opacity: 0.2 }} />
         <p style={{ fontFamily: FONT_BODY, fontSize: "0.9rem" }}>Select a conversation</p>
       </div>
@@ -1048,27 +966,14 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
     if (activeCall && zegoConfig) {
       return (
         <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
-          <div style={{
-            display: "flex", alignItems: "center", justifyContent: "space-between",
-            padding: "0 20px", height: 60, flexShrink: 0,
-            borderBottom: `1px solid ${C.border}`,
-          }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 20px", height: 60, flexShrink: 0, borderBottom: `1px solid ${C.border}` }}>
             <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, color: C.text }}>{selectedFriend.fullName}</span>
-            <button onClick={() => setActiveCall(null)} style={{
-              background: "#ef4444", padding: "7px 16px",
-              borderRadius: 9, border: "none", color: "#fff", cursor: "pointer",
-              fontWeight: 700, display: "flex", alignItems: "center", gap: 6,
-              fontFamily: FONT_DISPLAY, fontSize: "0.82rem",
-            }}>
+            <button onClick={() => setActiveCall(null)} style={{ background: "#ef4444", padding: "7px 16px", borderRadius: 9, border: "none", color: "#fff", cursor: "pointer", fontWeight: 700, display: "flex", alignItems: "center", gap: 6, fontFamily: FONT_DISPLAY, fontSize: "0.82rem" }}>
               <Phone size={13} style={{ transform: "rotate(135deg)" }} /> End
             </button>
           </div>
           <div style={{ flex: 1, background: "#000", position: "relative", minHeight: 0 }}>
-            <VideoRoom
-              appId={zegoConfig.appId} serverSecret={zegoConfig.serverSecret}
-              roomId={activeCall.roomId} userId={user.id} userName={user.fullName}
-              isAudioOnly={!activeCall.isVideo} onJoined={() => {}}
-            />
+            <VideoRoom appId={zegoConfig.appId} serverSecret={zegoConfig.serverSecret} roomId={activeCall.roomId} userId={user.id} userName={user.fullName} isAudioOnly={!activeCall.isVideo} onJoined={() => {}} />
           </div>
         </div>
       );
@@ -1076,416 +981,233 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
 
     return (
       <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
-        {/* Chat Header */}
-        <div style={{
-          display: "flex", alignItems: "center", justifyContent: "space-between",
-          padding: "0 20px", height: 62, flexShrink: 0,
-          background: C.bg,
-          borderBottom: `1px solid ${C.border}`,
-        }}>
+        {/* Header */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 20px", height: 62, flexShrink: 0, background: C.bg, borderBottom: `1px solid ${C.border}` }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             {!isDesktop && (
-              <button onClick={goBack} style={{
-                width: 32, height: 32, borderRadius: 8,
-                background: C.surfaceAlt, border: `1px solid ${C.border}`,
-                display: "flex", alignItems: "center", justifyContent: "center",
-                color: C.textMuted, cursor: "pointer",
-              }}>
+              <button onClick={goBack} style={{ width: 32, height: 32, borderRadius: 8, background: C.surfaceAlt, border: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "center", color: C.textMuted, cursor: "pointer" }}>
                 <ArrowLeft size={15} />
               </button>
             )}
             <Avatar name={selectedFriend.fullName} size={36} color="cyan" online />
             <div>
-              <div style={{ fontFamily: FONT_DISPLAY, fontSize: "0.95rem", fontWeight: 700, color: C.text, letterSpacing: "-0.01em" }}>
-                {selectedFriend.fullName}
-              </div>
+              <div style={{ fontFamily: FONT_DISPLAY, fontSize: "0.95rem", fontWeight: 700, color: C.text, letterSpacing: "-0.01em" }}>{selectedFriend.fullName}</div>
               <div style={{ fontSize: "0.7rem", color: C.accentGreen, fontWeight: 600, fontFamily: FONT_BODY }}>Online</div>
             </div>
           </div>
           <div style={{ display: "flex", gap: 8 }}>
-            <button style={{
-              width: 36, height: 36, borderRadius: 9,
-              background: C.surfaceAlt, border: `1px solid ${C.border}`,
-              display: "flex", alignItems: "center", justifyContent: "center",
-              color: C.textMuted, cursor: "pointer",
-            }} onClick={() => startCall(false)}>
+            <button style={{ width: 36, height: 36, borderRadius: 9, background: C.surfaceAlt, border: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "center", color: C.textMuted, cursor: "pointer" }} onClick={() => startCall(false)}>
               <Phone size={15} />
             </button>
-            <button style={{
-              width: 36, height: 36, borderRadius: 9,
-              background: "linear-gradient(135deg, #6d28d9, #8b5cf6)",
-              border: "none",
-              display: "flex", alignItems: "center", justifyContent: "center",
-              color: "#fff", cursor: "pointer",
-            }} onClick={() => startCall(true)}>
+            <button style={{ width: 36, height: 36, borderRadius: 9, background: "linear-gradient(135deg, #6d28d9, #8b5cf6)", border: "none", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", cursor: "pointer" }} onClick={() => startCall(true)}>
               <Camera size={15} />
             </button>
           </div>
         </div>
 
-        {/* FIX #1 + #4: MessageList is memoized — typing in ChatInput won't re-render messages */}
-        <MessageList
-          messages={messages}
-          userId={user.id}
-          partnerTyping={partnerTyping}
-          bottomRef={bottomRef}
-        />
+        {/* FIX #6: onScroll handler on the wrapper keeps userAtBottomRef accurate */}
+        <div
+          onScroll={handleMessageScroll}
+          style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column", minHeight: 0 }}
+        >
+          <MessageList messages={messages} userId={user.id} partnerTyping={partnerTyping} bottomRef={bottomRef} />
+        </div>
 
-        {/* FIX #1 (CORE): ChatInput is fully memoized with stable callback refs.
-            It will NEVER re-mount or re-render due to parent state changes.
-            The input ref is stable across renders — focus is permanent. */}
         <ChatInput
-          value={messageInput}
-          imagePreview={imagePreview}
-          inputRef={compInputRef}
-          fileRef={fileRef}
-          onChange={handleTyping}
-          onSend={handleSend}
-          onImageUpload={handleImgUpload}
-          onClearImage={handleClearImage}
+          value={messageInput} imagePreview={imagePreview}
+          inputRef={compInputRef} fileRef={fileRef}
+          onChange={handleTyping} onSend={handleSend}
+          onImageUpload={handleImgUpload} onClearImage={handleClearImage}
         />
       </div>
     );
   }
 
-  function renderDiscoverContent() { return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
-      <div style={{ padding: "20px 24px 16px", borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
-        <h2 style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, fontSize: "1.2rem", color: C.text, letterSpacing: "-0.02em" }}>Discover</h2>
-        <p style={{ fontFamily: FONT_BODY, fontSize: "0.78rem", color: C.textMuted, marginTop: 2 }}>Verified Members</p>
-      </div>
-      <div style={{ padding: "12px 20px", flexShrink: 0, borderBottom: `1px solid ${C.border}` }}>
-        <div style={{ position: "relative" }}>
-          <Search size={14} style={{
-            position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)",
-            color: C.textDim, pointerEvents: "none",
-          }} />
-          <input
-            style={{
-              width: "100%", padding: "10px 12px 10px 34px", borderRadius: 10,
-              border: `1px solid ${C.border}`, background: C.surfaceAlt,
-              color: C.text, outline: "none", boxSizing: "border-box" as const,
-              fontFamily: FONT_BODY, transition: "border-color 0.2s",
-            }}
-            onFocus={e => e.currentTarget.style.borderColor = C.borderGlow}
-            onBlur={e => e.currentTarget.style.borderColor = C.border}
-            placeholder="Search by name or major…"
-            value={nameFilter}
-            onChange={(e) => setNameFilter(e.target.value)}
-            autoComplete="off" autoCorrect="off" spellCheck={false}
-          />
-          {nameFilter && (
-            <button onClick={() => setNameFilter("")} style={{
-              position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)",
-              background: "rgba(255,255,255,0.08)", border: "none", borderRadius: "50%",
-              width: 20, height: 20, cursor: "pointer", color: C.textMuted,
-              display: "flex", alignItems: "center", justifyContent: "center", padding: 0,
-            }}>
-              <X size={11} />
-            </button>
-          )}
+  function renderDiscoverContent() {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
+        <div style={{ padding: "20px 24px 16px", borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
+          <h2 style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, fontSize: "1.2rem", color: C.text, letterSpacing: "-0.02em" }}>Discover</h2>
+          <p style={{ fontFamily: FONT_BODY, fontSize: "0.78rem", color: C.textMuted, marginTop: 2 }}>Verified Members</p>
         </div>
-        <div style={{ fontSize: "0.72rem", color: C.textDim, marginTop: 8, fontFamily: FONT_BODY }}>
-          <span style={{ color: C.accentGreen, fontWeight: 600 }}>● </span>
-          {filteredDiscoverUsers.length} student{filteredDiscoverUsers.length !== 1 ? "s" : ""} found
-          {nameFilter.trim() && <span style={{ color: C.accent, marginLeft: 4 }}>for "{nameFilter.trim()}"</span>}
-        </div>
-      </div>
-      <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden", padding: "14px 20px", minHeight: 0 }}>
-        <div style={{
-          display: "grid",
-          gridTemplateColumns: isDesktop ? "repeat(auto-fill, minmax(280px, 1fr))" : "1fr",
-          gap: 10,
-        }}>
-          {filteredDiscoverUsers.map((u) => (
-            <UserCard key={u.id} user={u} onAdd={() => void sendFriendRequest(u.id)} />
-          ))}
-        </div>
-        {filteredDiscoverUsers.length === 0 && (
-          <div style={{
-            background: C.surfaceAlt, border: `1px dashed ${C.border}`, borderRadius: 14,
-            padding: 24, textAlign: "center", color: C.textDim, fontSize: "0.84rem",
-            fontFamily: FONT_BODY,
-          }}>
-            {nameFilter.trim() ? `No students found for "${nameFilter.trim()}".` : "No students to discover."}
-          </div>
-        )}
-        <div style={{ height: 20 }} />
-      </div>
-    </div>
-  ); }
-
-  function renderProfileContent() { return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
-      <div style={{ padding: "20px 24px 16px", borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
-        <h2 style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, fontSize: "1.2rem", color: C.text, letterSpacing: "-0.02em" }}>Profile</h2>
-      </div>
-      <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden", padding: 20, minHeight: 0 }}>
-        <div style={{
-          background: "linear-gradient(135deg, #0d1428, #0f1730)",
-          border: `1px solid rgba(139,92,246,0.15)`,
-          borderRadius: 20, padding: "28px 24px", marginBottom: 16,
-          display: "flex", flexDirection: "column", alignItems: "center",
-          gap: 16, textAlign: "center", position: "relative", overflow: "hidden",
-        }}>
-          <div style={{
-            position: "absolute", top: -40, right: -40, width: 200, height: 200,
-            background: "radial-gradient(circle, rgba(139,92,246,0.15) 0%, transparent 70%)",
-            pointerEvents: "none",
-          }} />
-          <Avatar name={user.fullName} size={80} color="violet" online />
-          <div>
-            <div style={{
-              fontSize: "1.5rem", fontWeight: 900, color: C.text,
-              fontFamily: FONT_DISPLAY, letterSpacing: "-0.03em",
-            }}>{user.fullName}</div>
-            <div style={{ fontSize: "0.82rem", color: C.accentBright, fontWeight: 600, marginTop: 4, fontFamily: FONT_BODY }}>
-              @{user.fullName.toLowerCase().replace(/\s+/g, ".")}
-            </div>
-            {(user as any).course && (user as any).year && (
-              <div style={{ fontSize: "0.77rem", color: C.textDim, marginTop: 3, fontFamily: FONT_BODY }}>
-                {(user as any).course} · {(user as any).year} Year
-              </div>
+        <div style={{ padding: "12px 20px", flexShrink: 0, borderBottom: `1px solid ${C.border}` }}>
+          <div style={{ position: "relative" }}>
+            <Search size={14} style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: C.textDim, pointerEvents: "none" }} />
+            <input
+              style={{ width: "100%", padding: "10px 12px 10px 34px", borderRadius: 10, border: `1px solid ${C.border}`, background: C.surfaceAlt, color: C.text, outline: "none", boxSizing: "border-box" as const, fontFamily: FONT_BODY, transition: "border-color 0.2s" }}
+              onFocus={e => e.currentTarget.style.borderColor = C.borderGlow}
+              onBlur={e => e.currentTarget.style.borderColor = C.border}
+              placeholder="Search by name or major…"
+              value={nameFilter}
+              onChange={(e) => setNameFilter(e.target.value)}
+              autoComplete="off" autoCorrect="off" spellCheck={false}
+            />
+            {nameFilter && (
+              <button onClick={() => setNameFilter("")} style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", background: "rgba(255,255,255,0.08)", border: "none", borderRadius: "50%", width: 20, height: 20, cursor: "pointer", color: C.textMuted, display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}>
+                <X size={11} />
+              </button>
             )}
           </div>
-          <div style={{
-            display: "flex", width: "100%",
-            background: "rgba(255,255,255,0.03)", borderRadius: 14,
-            border: `1px solid ${C.border}`,
-          }}>
-            {[
-              ["Friends", friends.length],
-              ["Requests", requests.length],
-              ["Discover", discoverUsers.length],
-            ].map(([label, val], i, arr) => (
-              <div key={label as string} style={{
-                flex: 1, borderRight: i < arr.length - 1 ? `1px solid ${C.border}` : "none",
-              }}>
-                <StatPill value={val as number} label={label as string} />
-              </div>
-            ))}
+          <div style={{ fontSize: "0.72rem", color: C.textDim, marginTop: 8, fontFamily: FONT_BODY }}>
+            <span style={{ color: C.accentGreen, fontWeight: 600 }}>● </span>
+            {filteredDiscoverUsers.length} student{filteredDiscoverUsers.length !== 1 ? "s" : ""} found
+            {nameFilter.trim() && <span style={{ color: C.accent, marginLeft: 4 }}>for "{nameFilter.trim()}"</span>}
           </div>
-          <div style={{
-            display: "inline-flex", alignItems: "center", gap: 6,
-            background: "rgba(139,92,246,0.1)",
-            border: "1px solid rgba(139,92,246,0.2)",
-            borderRadius: 100, padding: "6px 16px",
-          }}>
-            <Star size={12} color={C.accent} fill={C.accent} />
-            <span style={{ fontSize: "0.73rem", fontWeight: 700, color: C.accent, fontFamily: FONT_DISPLAY }}>
-              ELITE STATUS
-            </span>
-          </div>
-          <button onClick={onLogout} style={{
-            background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.2)",
-            color: "#f87171", borderRadius: 10, padding: "10px 28px",
-            fontSize: "0.87rem", fontWeight: 600, cursor: "pointer",
-            fontFamily: FONT_DISPLAY,
-          }}>Sign Out</button>
         </div>
-
-        {requests.length > 0 && (
-          <div style={{
-            background: C.surfaceAlt, border: `1px solid ${C.border}`,
-            borderRadius: 16, overflow: "hidden", marginBottom: 14,
-          }}>
-            <div style={{
-              padding: "14px 18px 12px", borderBottom: `1px solid ${C.border}`,
-              display: "flex", alignItems: "center", justifyContent: "space-between",
-            }}>
-              <span style={{ fontSize: "0.9rem", fontWeight: 700, color: C.text, fontFamily: FONT_DISPLAY }}>Friend Requests</span>
-              <span style={{
-                background: "rgba(139,92,246,0.12)", borderRadius: 100,
-                padding: "2px 9px", fontSize: "0.7rem", color: C.accent, fontWeight: 700,
-                fontFamily: FONT_DISPLAY,
-              }}>{requests.length}</span>
+        <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden", padding: "14px 20px", minHeight: 0 }}>
+          <div style={{ display: "grid", gridTemplateColumns: isDesktop ? "repeat(auto-fill, minmax(280px, 1fr))" : "1fr", gap: 10 }}>
+            {filteredDiscoverUsers.map((u) => <UserCard key={u.id} user={u} onAdd={() => void sendFriendRequest(u.id)} />)}
+          </div>
+          {filteredDiscoverUsers.length === 0 && (
+            <div style={{ background: C.surfaceAlt, border: `1px dashed ${C.border}`, borderRadius: 14, padding: 24, textAlign: "center", color: C.textDim, fontSize: "0.84rem", fontFamily: FONT_BODY }}>
+              {nameFilter.trim() ? `No students found for "${nameFilter.trim()}".` : "No students to discover."}
             </div>
-            {requests.map((req) => (
-              <div key={req.id} style={{
-                display: "flex", alignItems: "center", gap: 12, padding: "14px 18px",
-                borderBottom: `1px solid ${C.border}`,
-              }}>
-                <Avatar name={req.sender.fullName} size={40} color="cyan" />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: "0.88rem", fontWeight: 700, color: C.text, fontFamily: FONT_DISPLAY }}>
-                    {req.sender.fullName}
-                  </div>
-                  <div style={{ fontSize: "0.73rem", color: C.textDim, fontFamily: FONT_BODY }}>
-                    {(req.sender as any).course ? `${(req.sender as any).course} · ${(req.sender as any).year} Year` : "Campus student"}
-                  </div>
-                </div>
-                <button onClick={() => void acceptRequest(req.id)} style={{
-                  background: "linear-gradient(135deg, #047857, #10b981)",
-                  border: "none", borderRadius: 9, padding: "8px 16px",
-                  fontSize: "0.77rem", fontWeight: 700, color: "#fff", cursor: "pointer",
-                  fontFamily: FONT_DISPLAY,
-                }}>Accept</button>
-              </div>
-            ))}
-          </div>
-        )}
+          )}
+          <div style={{ height: 20 }} />
+        </div>
+      </div>
+    );
+  }
 
-        {notifications.length > 0 && (
-          <div style={{
-            background: C.surfaceAlt, border: `1px solid ${C.border}`,
-            borderRadius: 16, overflow: "hidden", marginBottom: 14,
-          }}>
-            <div style={{ padding: "14px 18px 12px", borderBottom: `1px solid ${C.border}` }}>
-              <span style={{ fontSize: "0.9rem", fontWeight: 700, color: C.text, fontFamily: FONT_DISPLAY }}>Notifications</span>
+  function renderProfileContent() {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
+        <div style={{ padding: "20px 24px 16px", borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
+          <h2 style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, fontSize: "1.2rem", color: C.text, letterSpacing: "-0.02em" }}>Profile</h2>
+        </div>
+        <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden", padding: 20, minHeight: 0 }}>
+          <div style={{ background: "linear-gradient(135deg, #0d1428, #0f1730)", border: `1px solid rgba(139,92,246,0.15)`, borderRadius: 20, padding: "28px 24px", marginBottom: 16, display: "flex", flexDirection: "column", alignItems: "center", gap: 16, textAlign: "center", position: "relative", overflow: "hidden" }}>
+            <div style={{ position: "absolute", top: -40, right: -40, width: 200, height: 200, background: "radial-gradient(circle, rgba(139,92,246,0.15) 0%, transparent 70%)", pointerEvents: "none" }} />
+            <Avatar name={user.fullName} size={80} color="violet" online />
+            <div>
+              <div style={{ fontSize: "1.5rem", fontWeight: 900, color: C.text, fontFamily: FONT_DISPLAY, letterSpacing: "-0.03em" }}>{user.fullName}</div>
+              <div style={{ fontSize: "0.82rem", color: C.accentBright, fontWeight: 600, marginTop: 4, fontFamily: FONT_BODY }}>@{user.fullName.toLowerCase().replace(/\s+/g, ".")}</div>
+              {(user as any).course && (user as any).year && (
+                <div style={{ fontSize: "0.77rem", color: C.textDim, marginTop: 3, fontFamily: FONT_BODY }}>{(user as any).course} · {(user as any).year} Year</div>
+              )}
             </div>
-            {notifications.map((n) => (
-              <div key={n.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 18px", borderBottom: `1px solid ${C.border}` }}>
-                <div style={{
-                  width: 34, height: 34, borderRadius: 9,
-                  background: "rgba(139,92,246,0.1)",
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  fontSize: "0.9rem",
-                }}>
-                  {n.type === "friend_accept" ? "✓" : n.type === "friend_request" ? "+" : "i"}
+            <div style={{ display: "flex", width: "100%", background: "rgba(255,255,255,0.03)", borderRadius: 14, border: `1px solid ${C.border}` }}>
+              {[["Friends", friends.length], ["Requests", requests.length], ["Discover", discoverUsers.length]].map(([label, val], i, arr) => (
+                <div key={label as string} style={{ flex: 1, borderRight: i < arr.length - 1 ? `1px solid ${C.border}` : "none" }}>
+                  <StatPill value={val as number} label={label as string} />
                 </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: "0.84rem", fontWeight: 600, color: C.text, fontFamily: FONT_DISPLAY }}>
-                    {n.type === "friend_accept" ? "Request accepted" : n.type === "friend_request" ? "New request" : "Update"}
-                  </div>
-                  <div style={{ fontSize: "0.72rem", color: C.textDim, fontFamily: FONT_BODY }}>{n.message}</div>
-                </div>
-              </div>
-            ))}
+              ))}
+            </div>
+            <div style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "rgba(139,92,246,0.1)", border: "1px solid rgba(139,92,246,0.2)", borderRadius: 100, padding: "6px 16px" }}>
+              <Star size={12} color={C.accent} fill={C.accent} />
+              <span style={{ fontSize: "0.73rem", fontWeight: 700, color: C.accent, fontFamily: FONT_DISPLAY }}>ELITE STATUS</span>
+            </div>
+            <button onClick={onLogout} style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.2)", color: "#f87171", borderRadius: 10, padding: "10px 28px", fontSize: "0.87rem", fontWeight: 600, cursor: "pointer", fontFamily: FONT_DISPLAY }}>Sign Out</button>
           </div>
-        )}
 
-        <div style={{
-          background: C.surfaceAlt, border: `1px solid ${C.border}`,
-          borderRadius: 16, overflow: "hidden",
-        }}>
-          <div style={{ padding: "14px 18px 12px", borderBottom: `1px solid ${C.border}` }}>
-            <span style={{ fontSize: "0.9rem", fontWeight: 700, color: C.text, fontFamily: FONT_DISPLAY }}>Blocked Users</span>
-          </div>
-          {blockedUsers.length === 0
-            ? (
-              <div style={{ padding: 24, textAlign: "center", color: C.textDim, fontSize: "0.82rem", fontFamily: FONT_BODY }}>
-                <Lock size={18} style={{ marginBottom: 10, display: "block", margin: "0 auto 10px", opacity: 0.3 }} />
-                No blocked users.
+          {requests.length > 0 && (
+            <div style={{ background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 16, overflow: "hidden", marginBottom: 14 }}>
+              <div style={{ padding: "14px 18px 12px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <span style={{ fontSize: "0.9rem", fontWeight: 700, color: C.text, fontFamily: FONT_DISPLAY }}>Friend Requests</span>
+                <span style={{ background: "rgba(139,92,246,0.12)", borderRadius: 100, padding: "2px 9px", fontSize: "0.7rem", color: C.accent, fontWeight: 700, fontFamily: FONT_DISPLAY }}>{requests.length}</span>
               </div>
-            )
-            : blockedUsers.map((e) => (
-                <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 18px", borderBottom: `1px solid ${C.border}` }}>
-                  <div style={{
-                    width: 36, height: 36, borderRadius: 9,
-                    background: "rgba(239,68,68,0.1)",
-                    display: "flex", alignItems: "center", justifyContent: "center", color: "#f87171",
-                  }}>
-                    <ShieldBan size={15} />
+              {requests.map((req) => (
+                <div key={req.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 18px", borderBottom: `1px solid ${C.border}` }}>
+                  <Avatar name={req.sender.fullName} size={40} color="cyan" />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: "0.88rem", fontWeight: 700, color: C.text, fontFamily: FONT_DISPLAY }}>{req.sender.fullName}</div>
+                    <div style={{ fontSize: "0.73rem", color: C.textDim, fontFamily: FONT_BODY }}>{(req.sender as any).course ? `${(req.sender as any).course} · ${(req.sender as any).year} Year` : "Campus student"}</div>
+                  </div>
+                  <button onClick={() => void acceptRequest(req.id)} style={{ background: "linear-gradient(135deg, #047857, #10b981)", border: "none", borderRadius: 9, padding: "8px 16px", fontSize: "0.77rem", fontWeight: 700, color: "#fff", cursor: "pointer", fontFamily: FONT_DISPLAY }}>Accept</button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {notifications.length > 0 && (
+            <div style={{ background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 16, overflow: "hidden", marginBottom: 14 }}>
+              <div style={{ padding: "14px 18px 12px", borderBottom: `1px solid ${C.border}` }}>
+                <span style={{ fontSize: "0.9rem", fontWeight: 700, color: C.text, fontFamily: FONT_DISPLAY }}>Notifications</span>
+              </div>
+              {notifications.map((n) => (
+                <div key={n.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 18px", borderBottom: `1px solid ${C.border}` }}>
+                  <div style={{ width: 34, height: 34, borderRadius: 9, background: "rgba(139,92,246,0.1)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.9rem" }}>
+                    {n.type === "friend_accept" ? "✓" : n.type === "friend_request" ? "+" : "i"}
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: "0.86rem", fontWeight: 700, color: C.text, fontFamily: FONT_DISPLAY }}>{e.user.fullName}</div>
-                    <div style={{ fontSize: "0.72rem", color: C.textDim, fontFamily: FONT_BODY }}>
-                      {e.reason ? `Reason: ${e.reason}` : "Blocked user"}
-                    </div>
+                    <div style={{ fontSize: "0.84rem", fontWeight: 600, color: C.text, fontFamily: FONT_DISPLAY }}>{n.type === "friend_accept" ? "Request accepted" : n.type === "friend_request" ? "New request" : "Update"}</div>
+                    <div style={{ fontSize: "0.72rem", color: C.textDim, fontFamily: FONT_BODY }}>{n.message}</div>
                   </div>
-                  <button onClick={() => void unblockUser(e.user.id)} style={{
-                    background: "transparent", border: `1px solid ${C.border}`,
-                    borderRadius: 9, padding: "6px 12px",
-                    fontSize: "0.74rem", fontWeight: 600, color: C.textMuted,
-                    cursor: "pointer", display: "flex", alignItems: "center", gap: 5,
-                    fontFamily: FONT_BODY,
-                  }}>
-                    <ShieldBan size={12} /> Unblock
-                  </button>
                 </div>
-              ))
-          }
-        </div>
-        <div style={{ height: 24 }} />
-      </div>
-    </div>
-  ); }
+              ))}
+            </div>
+          )}
 
-  // ─── MOBILE Bottom Nav ────────────────────────────────────────────────────
+          <div style={{ background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 16, overflow: "hidden" }}>
+            <div style={{ padding: "14px 18px 12px", borderBottom: `1px solid ${C.border}` }}>
+              <span style={{ fontSize: "0.9rem", fontWeight: 700, color: C.text, fontFamily: FONT_DISPLAY }}>Blocked Users</span>
+            </div>
+            {blockedUsers.length === 0
+              ? (
+                <div style={{ padding: 24, textAlign: "center", color: C.textDim, fontSize: "0.82rem", fontFamily: FONT_BODY }}>
+                  <Lock size={18} style={{ marginBottom: 10, display: "block", margin: "0 auto 10px", opacity: 0.3 }} />
+                  No blocked users.
+                </div>
+              )
+              : blockedUsers.map((e) => (
+                  <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 18px", borderBottom: `1px solid ${C.border}` }}>
+                    <div style={{ width: 36, height: 36, borderRadius: 9, background: "rgba(239,68,68,0.1)", display: "flex", alignItems: "center", justifyContent: "center", color: "#f87171" }}>
+                      <ShieldBan size={15} />
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: "0.86rem", fontWeight: 700, color: C.text, fontFamily: FONT_DISPLAY }}>{e.user.fullName}</div>
+                      <div style={{ fontSize: "0.72rem", color: C.textDim, fontFamily: FONT_BODY }}>{e.reason ? `Reason: ${e.reason}` : "Blocked user"}</div>
+                    </div>
+                    <button onClick={() => void unblockUser(e.user.id)} style={{ background: "transparent", border: `1px solid ${C.border}`, borderRadius: 9, padding: "6px 12px", fontSize: "0.74rem", fontWeight: 600, color: C.textMuted, cursor: "pointer", display: "flex", alignItems: "center", gap: 5, fontFamily: FONT_BODY }}>
+                      <ShieldBan size={12} /> Unblock
+                    </button>
+                  </div>
+                ))
+            }
+          </div>
+          <div style={{ height: 24 }} />
+        </div>
+      </div>
+    );
+  }
+
+  // ─── Mobile nav ───────────────────────────────────────────────────────────
   const mobileTabs: { id: AppTab; label: string; icon: React.ReactNode; badge?: number }[] = [
     { id: "home",     label: "Club",    icon: <Home size={20} /> },
     { id: "discover", label: "Explore", icon: <Grid3x3 size={20} /> },
-    // FIX #2: badge shows count of users with unread, not total message count
     { id: "messages", label: "Inbox",   icon: <MessageCircle size={20} />, badge: usersWithUnread },
     { id: "profile",  label: "Elite",   icon: <Star size={20} /> },
   ];
   const navActive = (id: AppTab) =>
     id === "messages" ? (activeTab === "messages" || activeTab === "chat") : activeTab === id;
 
-  // ─── RENDER ───────────────────────────────────────────────────────────────
+  // ─── Call overlays ────────────────────────────────────────────────────────
   const callOverlays = (
     <>
       {outgoingCall && !activeCall && (
-        <div style={{
-          position: "fixed", inset: 0, zIndex: 99999,
-          background: "rgba(6,9,16,0.97)",
-          backdropFilter: "blur(20px)",
-          display: "flex", flexDirection: "column",
-          alignItems: "center", justifyContent: "center",
-          animation: "fade-in 0.3s ease",
-        }}>
-          <div style={{
-            width: 100, height: 100, borderRadius: "50%",
-            background: "linear-gradient(135deg, #6d28d9, #8b5cf6)",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            fontSize: "2rem", fontWeight: 800, color: "#fff",
-            fontFamily: FONT_DISPLAY, marginBottom: 24,
-            animation: "pulse-ring 1.5s infinite",
-          }}>
+        <div style={{ position: "fixed", inset: 0, zIndex: 99999, background: "rgba(6,9,16,0.97)", backdropFilter: "blur(20px)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", animation: "fade-in 0.3s ease" }}>
+          <div style={{ width: 100, height: 100, borderRadius: "50%", background: "linear-gradient(135deg, #6d28d9, #8b5cf6)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "2rem", fontWeight: 800, color: "#fff", fontFamily: FONT_DISPLAY, marginBottom: 24, animation: "pulse-ring 1.5s infinite" }}>
             {initials(outgoingCall.receiverName)}
           </div>
-          <h3 style={{ color: C.text, fontSize: "1.5rem", fontFamily: FONT_DISPLAY, fontWeight: 900, letterSpacing: "-0.02em" }}>
-            {outgoingCall.receiverName}
-          </h3>
+          <h3 style={{ color: C.text, fontSize: "1.5rem", fontFamily: FONT_DISPLAY, fontWeight: 900, letterSpacing: "-0.02em" }}>{outgoingCall.receiverName}</h3>
           <p style={{ color: C.textMuted, marginTop: 8, fontSize: "0.87rem", fontFamily: FONT_BODY }}>Calling…</p>
-          <button onClick={() => setOutgoingCall(null)} style={{
-            marginTop: 36, background: "#ef4444",
-            padding: "12px 28px", borderRadius: 12, border: "none",
-            color: "#fff", cursor: "pointer", fontSize: "0.9rem", fontWeight: 700,
-            display: "flex", alignItems: "center", gap: 8, fontFamily: FONT_DISPLAY,
-          }}>
+          <button onClick={() => setOutgoingCall(null)} style={{ marginTop: 36, background: "#ef4444", padding: "12px 28px", borderRadius: 12, border: "none", color: "#fff", cursor: "pointer", fontSize: "0.9rem", fontWeight: 700, display: "flex", alignItems: "center", gap: 8, fontFamily: FONT_DISPLAY }}>
             <Phone size={15} style={{ transform: "rotate(135deg)" }} /> Cancel
           </button>
         </div>
       )}
       {incomingCall && !activeCall && (
-        <div style={{
-          position: "fixed", inset: 0, zIndex: 99999,
-          background: "rgba(6,9,16,0.97)",
-          backdropFilter: "blur(20px)",
-          display: "flex", flexDirection: "column",
-          alignItems: "center", justifyContent: "center",
-          animation: "fade-in 0.3s ease",
-        }}>
-          <div style={{
-            width: 100, height: 100, borderRadius: "50%",
-            background: "linear-gradient(135deg, #047857, #10b981)",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            fontSize: "2rem", fontWeight: 800, color: "#fff",
-            fontFamily: FONT_DISPLAY, marginBottom: 24,
-          }}>
+        <div style={{ position: "fixed", inset: 0, zIndex: 99999, background: "rgba(6,9,16,0.97)", backdropFilter: "blur(20px)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", animation: "fade-in 0.3s ease" }}>
+          <div style={{ width: 100, height: 100, borderRadius: "50%", background: "linear-gradient(135deg, #047857, #10b981)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "2rem", fontWeight: 800, color: "#fff", fontFamily: FONT_DISPLAY, marginBottom: 24 }}>
             {initials(incomingCall.callerName)}
           </div>
-          <h3 style={{ color: C.text, fontSize: "1.5rem", fontFamily: FONT_DISPLAY, fontWeight: 900, letterSpacing: "-0.02em" }}>
-            {incomingCall.callerName}
-          </h3>
-          <p style={{ color: C.textMuted, marginTop: 8, fontSize: "0.87rem", fontFamily: FONT_BODY }}>
-            Incoming {incomingCall.isVideo ? "Video" : "Audio"} Call
-          </p>
+          <h3 style={{ color: C.text, fontSize: "1.5rem", fontFamily: FONT_DISPLAY, fontWeight: 900, letterSpacing: "-0.02em" }}>{incomingCall.callerName}</h3>
+          <p style={{ color: C.textMuted, marginTop: 8, fontSize: "0.87rem", fontFamily: FONT_BODY }}>Incoming {incomingCall.isVideo ? "Video" : "Audio"} Call</p>
           <div style={{ display: "flex", gap: 24, marginTop: 40 }}>
-            <button onClick={declineCall} style={{
-              background: "#ef4444", borderRadius: "50%", border: "none", color: "#fff",
-              cursor: "pointer", width: 64, height: 64,
-              display: "flex", alignItems: "center", justifyContent: "center",
-            }}>
+            <button onClick={declineCall} style={{ background: "#ef4444", borderRadius: "50%", border: "none", color: "#fff", cursor: "pointer", width: 64, height: 64, display: "flex", alignItems: "center", justifyContent: "center" }}>
               <Phone size={22} style={{ transform: "rotate(135deg)" }} />
             </button>
-            <button onClick={acceptCall} style={{
-              background: "linear-gradient(135deg, #047857, #10b981)",
-              borderRadius: "50%", border: "none", color: "#fff",
-              cursor: "pointer", width: 64, height: 64,
-              display: "flex", alignItems: "center", justifyContent: "center",
-            }}>
+            <button onClick={acceptCall} style={{ background: "linear-gradient(135deg, #047857, #10b981)", borderRadius: "50%", border: "none", color: "#fff", cursor: "pointer", width: 64, height: 64, display: "flex", alignItems: "center", justifyContent: "center" }}>
               {incomingCall.isVideo ? <Camera size={22} /> : <Phone size={22} />}
             </button>
           </div>
@@ -1494,110 +1216,45 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
     </>
   );
 
+  // ─── Desktop layout ───────────────────────────────────────────────────────
   if (isDesktop) {
     return (
       <>
         <style>{GLOBAL_CSS}</style>
-        <div style={{
-          position: "fixed", inset: 0,
-          display: "flex",
-          background: C.bg, color: C.text,
-          fontFamily: FONT_BODY,
-          overflow: "hidden",
-        }}>
-          {/* ── Left Sidebar (240px) ── */}
-          <aside style={{
-            width: 240, flexShrink: 0,
-            display: "flex", flexDirection: "column",
-            background: C.surface,
-            borderRight: `1px solid ${C.border}`,
-            overflow: "hidden",
-          }}>
-            <div style={{
-              display: "flex", alignItems: "center", gap: 10,
-              padding: "18px 18px 14px",
-              borderBottom: `1px solid ${C.border}`,
-            }}>
-              <div style={{
-                width: 32, height: 32, borderRadius: 9,
-                background: "linear-gradient(135deg, #6d28d9, #06b6d4)",
-                display: "flex", alignItems: "center", justifyContent: "center",
-              }}>
+        <div style={{ position: "fixed", inset: 0, display: "flex", background: C.bg, color: C.text, fontFamily: FONT_BODY, overflow: "hidden" }}>
+          <aside style={{ width: 240, flexShrink: 0, display: "flex", flexDirection: "column", background: C.surface, borderRight: `1px solid ${C.border}`, overflow: "hidden" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "18px 18px 14px", borderBottom: `1px solid ${C.border}` }}>
+              <div style={{ width: 32, height: 32, borderRadius: 9, background: "linear-gradient(135deg, #6d28d9, #06b6d4)", display: "flex", alignItems: "center", justifyContent: "center" }}>
                 <Radio size={15} color="#fff" />
               </div>
-              <span style={{
-                fontFamily: FONT_DISPLAY, fontWeight: 900,
-                fontSize: "1.1rem", color: C.text, letterSpacing: "-0.02em",
-              }}>
-                CAMPUS<span style={{ color: C.accent }}>·</span>
-              </span>
+              <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 900, fontSize: "1.1rem", color: C.text, letterSpacing: "-0.02em" }}>CAMPUS<span style={{ color: C.accent }}>·</span></span>
             </div>
-            <div style={{
-              padding: "14px 16px",
-              borderBottom: `1px solid ${C.border}`,
-              display: "flex", alignItems: "center", gap: 10,
-            }}>
+            <div style={{ padding: "14px 16px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", gap: 10 }}>
               <Avatar name={user.fullName} size={36} color="pink" online />
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{
-                  fontSize: "0.84rem", fontWeight: 700, color: C.text,
-                  fontFamily: FONT_DISPLAY, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                }}>{user.fullName}</div>
+                <div style={{ fontSize: "0.84rem", fontWeight: 700, color: C.text, fontFamily: FONT_DISPLAY, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user.fullName}</div>
                 <div style={{ fontSize: "0.69rem", color: C.accentGreen, fontWeight: 600, fontFamily: FONT_BODY }}>● Online</div>
               </div>
-              {notifications.length > 0 && (
-                <div style={{ width: 8, height: 8, borderRadius: "50%", background: C.accentPink }} />
-              )}
+              {notifications.length > 0 && <div style={{ width: 8, height: 8, borderRadius: "50%", background: C.accentPink }} />}
             </div>
             <nav style={{ padding: "12px 10px", display: "flex", flexDirection: "column", gap: 2 }}>
               {renderSidebarItem({ id: "home", label: "Club Home", icon: <Home size={17} /> })}
               {renderSidebarItem({ id: "discover", label: "Explore", icon: <Grid3x3 size={17} /> })}
-              {/* FIX #2: badge uses usersWithUnread */}
               {renderSidebarItem({ id: "messages", label: "Inbox", icon: <MessageCircle size={17} />, badge: usersWithUnread })}
               {renderSidebarItem({ id: "profile", label: "Profile", icon: <UserCircle2 size={17} /> })}
             </nav>
             {friends.length > 0 && (
               <>
-                <div style={{
-                  padding: "10px 18px 8px",
-                  fontSize: "0.65rem", fontWeight: 700, color: C.textDim,
-                  textTransform: "uppercase", letterSpacing: "0.12em",
-                  fontFamily: FONT_DISPLAY,
-                  borderTop: `1px solid ${C.border}`, marginTop: 8,
-                }}>
+                <div style={{ padding: "10px 18px 8px", fontSize: "0.65rem", fontWeight: 700, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.12em", fontFamily: FONT_DISPLAY, borderTop: `1px solid ${C.border}`, marginTop: 8 }}>
                   Direct Messages
                 </div>
                 <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
                   {friends.map(f => (
-                    <button
-                      key={f.id}
-                      className="sidebar-btn"
-                      onClick={openChatCallbacks[f.id] ?? (() => openChat(f))}
-                      style={{
-                        display: "flex", alignItems: "center", gap: 9,
-                        padding: "8px 14px", width: "100%",
-                        background: selectedFriend?.id === f.id ? "rgba(139,92,246,0.08)" : "transparent",
-                        border: "none",
-                        borderLeft: selectedFriend?.id === f.id ? `2px solid ${C.accent}` : "2px solid transparent",
-                        cursor: "pointer",
-                        transition: "all 0.15s",
-                      }}
-                    >
+                    <button key={f.id} className="sidebar-btn" onClick={openChatCallbacks[f.id] ?? (() => openChat(f))} style={{ display: "flex", alignItems: "center", gap: 9, padding: "8px 14px", width: "100%", background: selectedFriend?.id === f.id ? "rgba(139,92,246,0.08)" : "transparent", border: "none", borderLeft: selectedFriend?.id === f.id ? `2px solid ${C.accent}` : "2px solid transparent", cursor: "pointer", transition: "all 0.15s" }}>
                       <Avatar name={f.fullName} size={28} color="cyan" online={!!(unreadCounts[f.id])} />
-                      <span style={{
-                        fontSize: "0.82rem",
-                        fontWeight: unreadCounts[f.id] ? 700 : 400,
-                        color: unreadCounts[f.id] ? C.text : C.textMuted,
-                        fontFamily: FONT_BODY,
-                        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1,
-                      }}>{f.fullName}</span>
-                      {/* FIX #2: per-user unread count */}
+                      <span style={{ fontSize: "0.82rem", fontWeight: unreadCounts[f.id] ? 700 : 400, color: unreadCounts[f.id] ? C.text : C.textMuted, fontFamily: FONT_BODY, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{f.fullName}</span>
                       {unreadCounts[f.id] > 0 && (
-                        <span style={{
-                          background: C.accentPink, color: "#fff", fontSize: "0.55rem",
-                          padding: "1px 5px", borderRadius: 100, fontWeight: 800,
-                          fontFamily: FONT_DISPLAY, minWidth: 16, textAlign: "center",
-                        }}>{unreadCounts[f.id]}</span>
+                        <span style={{ background: C.accentPink, color: "#fff", fontSize: "0.55rem", padding: "1px 5px", borderRadius: 100, fontWeight: 800, fontFamily: FONT_DISPLAY, minWidth: 16, textAlign: "center" }}>{unreadCounts[f.id]}</span>
                       )}
                     </button>
                   ))}
@@ -1606,14 +1263,8 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
             )}
           </aside>
 
-          {/* ── Main Content ── */}
           <main style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
-            <header style={{
-              display: "flex", alignItems: "center", justifyContent: "space-between",
-              padding: "0 28px", height: 60, flexShrink: 0,
-              background: C.bg,
-              borderBottom: `1px solid ${C.border}`,
-            }}>
+            <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 28px", height: 60, flexShrink: 0, background: C.bg, borderBottom: `1px solid ${C.border}` }}>
               <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: "1rem", color: C.text, letterSpacing: "-0.01em" }}>
                 {activeTab === "home" && "Club Home"}
                 {activeTab === "discover" && "Discover Students"}
@@ -1621,50 +1272,21 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
                 {activeTab === "profile" && "My Profile"}
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <button onClick={() => setActiveTab("discover")} style={{
-                  display: "flex", alignItems: "center", gap: 6,
-                  padding: "7px 14px", borderRadius: 9,
-                  background: C.surfaceAlt, border: `1px solid ${C.border}`,
-                  color: C.textMuted, cursor: "pointer", fontSize: "0.8rem",
-                  fontFamily: FONT_BODY,
-                }}>
+                <button onClick={() => setActiveTab("discover")} style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 14px", borderRadius: 9, background: C.surfaceAlt, border: `1px solid ${C.border}`, color: C.textMuted, cursor: "pointer", fontSize: "0.8rem", fontFamily: FONT_BODY }}>
                   <Search size={13} /> Search
                 </button>
-                <button style={{
-                  width: 36, height: 36, borderRadius: 9,
-                  background: C.surfaceAlt, border: `1px solid ${C.border}`,
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  color: C.textMuted, cursor: "pointer", position: "relative",
-                }}>
+                <button style={{ width: 36, height: 36, borderRadius: 9, background: C.surfaceAlt, border: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "center", color: C.textMuted, cursor: "pointer", position: "relative" }}>
                   <Bell size={15} />
-                  {notifications.length > 0 && (
-                    <span style={{
-                      position: "absolute", top: 6, right: 6,
-                      width: 7, height: 7, borderRadius: "50%",
-                      background: C.accentPink, border: `1.5px solid ${C.bg}`,
-                    }} />
-                  )}
+                  {notifications.length > 0 && <span style={{ position: "absolute", top: 6, right: 6, width: 7, height: 7, borderRadius: "50%", background: C.accentPink, border: `1.5px solid ${C.bg}` }} />}
                 </button>
-                <button onClick={() => navigate("/app/random")} style={{
-                  display: "flex", alignItems: "center", gap: 6,
-                  padding: "7px 16px", borderRadius: 9,
-                  background: "linear-gradient(135deg, #6d28d9, #8b5cf6)",
-                  border: "none", color: "#fff", cursor: "pointer",
-                  fontSize: "0.82rem", fontWeight: 700,
-                  fontFamily: FONT_DISPLAY,
-                }}>
+                <button onClick={() => navigate("/app/random")} style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 16px", borderRadius: 9, background: "linear-gradient(135deg, #6d28d9, #8b5cf6)", border: "none", color: "#fff", cursor: "pointer", fontSize: "0.82rem", fontWeight: 700, fontFamily: FONT_DISPLAY }}>
                   <Zap size={13} /> Random Chat
                 </button>
               </div>
             </header>
             <div style={{ flex: 1, overflow: "hidden", display: "flex", minHeight: 0 }}>
               {(activeTab === "messages" || activeTab === "chat") && (
-                <div style={{
-                  width: 320, flexShrink: 0,
-                  borderRight: `1px solid ${C.border}`,
-                  display: "flex", flexDirection: "column",
-                  overflow: "hidden",
-                }}>
+                <div style={{ width: 320, flexShrink: 0, borderRight: `1px solid ${C.border}`, display: "flex", flexDirection: "column", overflow: "hidden" }}>
                   {renderMessagesContent()}
                 </div>
               )}
@@ -1682,51 +1304,23 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
     );
   }
 
-  // ── MOBILE LAYOUT ──────────────────────────────────────────────────────────
+  // ─── Mobile layout ────────────────────────────────────────────────────────
   return (
     <>
       <style>{GLOBAL_CSS}</style>
-      <div style={{
-        position: "fixed", inset: 0,
-        display: "flex", flexDirection: "column",
-        background: C.bg, color: C.text,
-        fontFamily: FONT_BODY,
-        overflow: "hidden",
-      }}>
+      <div style={{ position: "fixed", inset: 0, display: "flex", flexDirection: "column", background: C.bg, color: C.text, fontFamily: FONT_BODY, overflow: "hidden" }}>
         {activeTab !== "chat" && activeTab !== "messages" && (
-          <div style={{
-            display: "flex", alignItems: "center", justifyContent: "space-between",
-            padding: "0 16px", height: 56, flexShrink: 0,
-            borderBottom: `1px solid ${C.border}`,
-            background: C.bg,
-          }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 16px", height: 56, flexShrink: 0, borderBottom: `1px solid ${C.border}`, background: C.bg }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <div style={{
-                width: 28, height: 28, borderRadius: 8,
-                background: "linear-gradient(135deg, #6d28d9, #06b6d4)",
-                display: "flex", alignItems: "center", justifyContent: "center",
-              }}>
+              <div style={{ width: 28, height: 28, borderRadius: 8, background: "linear-gradient(135deg, #6d28d9, #06b6d4)", display: "flex", alignItems: "center", justifyContent: "center" }}>
                 <Radio size={13} color="#fff" />
               </div>
-              <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 900, fontSize: "1.05rem", color: C.text }}>
-                CAMPUS<span style={{ color: C.accent }}>·</span>
-              </span>
+              <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 900, fontSize: "1.05rem", color: C.text }}>CAMPUS<span style={{ color: C.accent }}>·</span></span>
             </div>
             <div style={{ display: "flex", gap: 8 }}>
-              <button style={{
-                width: 32, height: 32, borderRadius: 8,
-                background: C.surfaceAlt, border: `1px solid ${C.border}`,
-                display: "flex", alignItems: "center", justifyContent: "center",
-                color: C.textMuted, cursor: "pointer", position: "relative",
-              }}>
+              <button style={{ width: 32, height: 32, borderRadius: 8, background: C.surfaceAlt, border: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "center", color: C.textMuted, cursor: "pointer", position: "relative" }}>
                 <Bell size={14} />
-                {notifications.length > 0 && (
-                  <span style={{
-                    position: "absolute", top: 5, right: 5,
-                    width: 6, height: 6, borderRadius: "50%",
-                    background: C.accentPink, border: `1.5px solid ${C.bg}`,
-                  }} />
-                )}
+                {notifications.length > 0 && <span style={{ position: "absolute", top: 5, right: 5, width: 6, height: 6, borderRadius: "50%", background: C.accentPink, border: `1.5px solid ${C.bg}` }} />}
               </button>
               <button onClick={() => setActiveTab("profile")} style={{ background: "none", border: "none", cursor: "pointer" }}>
                 <Avatar name={user.fullName} size={32} color="pink" />
@@ -1742,26 +1336,16 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
               <div style={{ marginTop: 20 }}>
                 {renderSectionTitle({ title: "Curated For You", action: "All", onAction: () => setActiveTab("discover") })}
                 <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                  {discoverUsers.slice(0, 3).map((u) => (
-                    <UserCard key={u.id} user={u} onAdd={() => void sendFriendRequest(u.id)} />
-                  ))}
+                  {discoverUsers.slice(0, 3).map((u) => <UserCard key={u.id} user={u} onAdd={() => void sendFriendRequest(u.id)} />)}
                 </div>
               </div>
               <div style={{ marginTop: 20 }}>
                 {renderSectionTitle({ title: "Active Dialogue", action: "See all", onAction: () => setActiveTab("messages") })}
                 <div style={{ background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 14, overflow: "hidden" }}>
                   {friends.slice(0, 4).map(f => (
-                    <ChatItem
-                      key={f.id} friend={f}
-                      unread={unreadCounts[f.id] ?? 0}
-                      lastMsg={lastMessages[f.id]}
-                      onClick={openChatCallbacks[f.id] ?? (() => openChat(f))}
-                      compact
-                    />
+                    <ChatItem key={f.id} friend={f} unread={unreadCounts[f.id] ?? 0} lastMsg={lastMessages[f.id]} onClick={openChatCallbacks[f.id] ?? (() => openChat(f))} compact />
                   ))}
-                  {friends.length === 0 && (
-                    <div style={{ padding: 20, textAlign: "center", color: C.textDim, fontSize: "0.82rem", fontFamily: FONT_BODY }}>Add friends to chat</div>
-                  )}
+                  {friends.length === 0 && <div style={{ padding: 20, textAlign: "center", color: C.textDim, fontSize: "0.82rem", fontFamily: FONT_BODY }}>Add friends to chat</div>}
                 </div>
               </div>
               <div style={{ height: 24 }} />
@@ -1774,54 +1358,16 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
         </div>
 
         {activeTab !== "chat" && (
-          <nav style={{
-            display: "flex",
-            height: "calc(60px + env(safe-area-inset-bottom, 0px))",
-            paddingBottom: "env(safe-area-inset-bottom, 0px)",
-            background: "rgba(6,9,16,0.98)",
-            borderTop: `1px solid ${C.border}`,
-            flexShrink: 0,
-            backdropFilter: "blur(20px)",
-          }}>
+          <nav style={{ display: "flex", height: "calc(60px + env(safe-area-inset-bottom, 0px))", paddingBottom: "env(safe-area-inset-bottom, 0px)", background: "rgba(6,9,16,0.98)", borderTop: `1px solid ${C.border}`, flexShrink: 0, backdropFilter: "blur(20px)" }}>
             {mobileTabs.map((tab) => {
               const active = navActive(tab.id);
               return (
-                <button
-                  key={tab.id}
-                  className="nav-item"
-                  onClick={() => {
-                    if (tab.id === "messages") setSelectedFriend(null);
-                    setActiveTab(tab.id);
-                  }}
-                  style={{
-                    flex: 1, display: "flex", flexDirection: "column",
-                    alignItems: "center", justifyContent: "center", gap: 4,
-                    background: "none", border: "none", cursor: "pointer",
-                    color: active ? C.accentBright : C.textDim,
-                    fontSize: "0.58rem", fontWeight: 700,
-                    position: "relative", padding: "8px 0",
-                    fontFamily: FONT_DISPLAY, letterSpacing: "0.08em",
-                    transition: "color 0.15s",
-                  }}
-                >
-                  {active && (
-                    <span style={{
-                      position: "absolute", top: 0, left: "50%",
-                      transform: "translateX(-50%)",
-                      width: 20, height: 2, borderRadius: 1,
-                      background: C.accent,
-                    }} />
-                  )}
+                <button key={tab.id} className="nav-item" onClick={() => { if (tab.id === "messages") setSelectedFriend(null); setActiveTab(tab.id); }} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4, background: "none", border: "none", cursor: "pointer", color: active ? C.accentBright : C.textDim, fontSize: "0.58rem", fontWeight: 700, position: "relative", padding: "8px 0", fontFamily: FONT_DISPLAY, letterSpacing: "0.08em", transition: "color 0.15s" }}>
+                  {active && <span style={{ position: "absolute", top: 0, left: "50%", transform: "translateX(-50%)", width: 20, height: 2, borderRadius: 1, background: C.accent }} />}
                   <span style={{ opacity: active ? 1 : 0.55 }}>{tab.icon}</span>
                   <span style={{ textTransform: "uppercase" }}>{tab.label}</span>
                   {tab.badge && tab.badge > 0 ? (
-                    <span style={{
-                      position: "absolute", top: 7, right: "calc(50% - 16px)",
-                      background: C.accentPink, color: "#fff",
-                      fontSize: "0.52rem", fontWeight: 800,
-                      padding: "1px 4px", borderRadius: 100, minWidth: 15, textAlign: "center",
-                      border: `2px solid ${C.bg}`, fontFamily: FONT_DISPLAY,
-                    }}>{tab.badge > 99 ? "99+" : tab.badge}</span>
+                    <span style={{ position: "absolute", top: 7, right: "calc(50% - 16px)", background: C.accentPink, color: "#fff", fontSize: "0.52rem", fontWeight: 800, padding: "1px 4px", borderRadius: 100, minWidth: 15, textAlign: "center", border: `2px solid ${C.bg}`, fontFamily: FONT_DISPLAY }}>{tab.badge > 99 ? "99+" : tab.badge}</span>
                   ) : null}
                 </button>
               );
