@@ -145,50 +145,113 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
     setZegoRenderMatch(null);
   }, [match]);
 
-  // Remove Zego's internal hangup button — scoped ONLY to the zego container
+  // Remove Zego's hangup button — it renders as a portal OUTSIDE .rcp-zego-fill
   useEffect(() => {
-    // Inject CSS scoped to .rcp-zego-fill only
+    const RCP_ROOT_SELECTOR = ".rcp-root";
+    const CONTROLS_SELECTOR = ".rcp-controls";
+
+    // Inject CSS: kill the Zego bottom bar regardless of where it appears
     const style = document.createElement("style");
     style.id = "zego-kill-ui";
     style.textContent = `
-      /* Zego renders a red hangup button inside its own container.
-         We hide it by targeting the bottom-most direct child div of the zego fill
-         that contains buttons — WITHOUT touching anything outside .rcp-zego-fill */
-      .rcp-zego-fill > div > div:last-child > button,
-      .rcp-zego-fill > div > div:last-child:has(button) {
+      /* Zego injects a bottom toolbar / hangup button as a sibling or portal.
+         These are elements that sit BETWEEN the video area and our controls bar.
+         Target them by known Zego class fragments. */
+      [class*="ZegoRoom"] [class*="footer"],
+      [class*="ZegoRoom"] [class*="Footer"],
+      [class*="ZegoRoom"] [class*="bottom"],
+      [class*="ZegoRoom"] [class*="Bottom"],
+      [class*="ZegoRoom"] [class*="toolbar"],
+      [class*="ZegoRoom"] [class*="Toolbar"],
+      [class*="ZegoRoom"] [class*="leave"],
+      [class*="ZegoRoom"] [class*="Leave"],
+      [class*="zego"] [class*="footer"],
+      [class*="zego"] [class*="bottom"],
+      [class*="zego"] [class*="toolbar"] {
         display: none !important;
         visibility: hidden !important;
         height: 0 !important;
         overflow: hidden !important;
         pointer-events: none !important;
+        opacity: 0 !important;
+      }
+
+      /* Zego's video grid should fill its container fully */
+      .rcp-zego-fill > div,
+      .rcp-zego-fill > div > div {
+        width: 100% !important;
+        height: 100% !important;
+        max-width: 100% !important;
+        max-height: 100% !important;
+        background: #0d0d10 !important;
+      }
+      .rcp-zego-fill video {
+        width: 100% !important;
+        height: 100% !important;
+        object-fit: cover !important;
       }
     `;
     if (!document.getElementById("zego-kill-ui")) {
       document.head.appendChild(style);
     }
 
-    // MutationObserver — only scan INSIDE .rcp-zego-fill, never the whole page
-    const hideInsideZego = () => {
-      const zegoRoot = document.querySelector(".rcp-zego-fill");
-      if (!zegoRoot) return;
+    // MutationObserver strategy:
+    // Zego's hangup button is rendered as a portal element that is a sibling
+    // of (or appended near) the video container. We identify it by checking
+    // if it contains a button with a phone/hangup SVG path OR red background,
+    // AND it is NOT inside .rcp-controls or .rcp-topbar (our own UI).
+    const OUR_SELECTORS = [".rcp-controls", ".rcp-topbar", ".rcp-sheet", ".rcp-drawer"];
 
-      zegoRoot.querySelectorAll<HTMLElement>("button, [role='button']").forEach((btn) => {
-        btn.style.setProperty("display", "none", "important");
-        btn.style.setProperty("visibility", "hidden", "important");
-        btn.style.setProperty("pointer-events", "none", "important");
+    const isOurElement = (el: HTMLElement): boolean => {
+      return OUR_SELECTORS.some((sel) => el.closest(sel) !== null);
+    };
+
+    const killZegoHangup = () => {
+      // Look for any element containing a button with phone icon SVG that is NOT our UI
+      document.querySelectorAll<HTMLElement>("button, [role='button']").forEach((btn) => {
+        if (isOurElement(btn)) return; // never touch our own buttons
+
+        const svg = btn.querySelector("svg");
+        const innerHTML = btn.innerHTML;
+        // Zego's hangup SVG path typically contains these coordinate fragments
+        const isPhoneIcon =
+          innerHTML.includes("M6.6") ||
+          innerHTML.includes("M20.01") ||
+          innerHTML.includes("phone") ||
+          innerHTML.includes("Phone") ||
+          innerHTML.includes("M22 16.92") ||
+          (svg !== null && btn.title?.toLowerCase().includes("leave")) ||
+          (svg !== null && (btn.getAttribute("aria-label") || "").toLowerCase().includes("leave"));
+
+        const style = window.getComputedStyle(btn);
+        const bg = style.backgroundColor;
+        // Red-ish background: rgb values where R > 180, G < 80, B < 80
+        const isRed = (() => {
+          const m = bg.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+          if (!m) return false;
+          return parseInt(m[1]) > 160 && parseInt(m[2]) < 90 && parseInt(m[3]) < 90;
+        })();
+
+        if (isPhoneIcon || isRed) {
+          // Hide both the button and its parent container
+          btn.style.setProperty("display", "none", "important");
+          const parent = btn.parentElement;
+          if (parent && !isOurElement(parent)) {
+            parent.style.setProperty("display", "none", "important");
+          }
+        }
       });
 
-      // Remove "Media play failed" overlays (these appear at document.body level)
-      document.body.querySelectorAll<HTMLElement>("div").forEach((el) => {
-        if (el.parentElement === document.body &&
-            ((el.textContent || "").includes("Media play failed") || (el.textContent || "").includes("Resume"))) {
-          el.remove();
-        }
+      // Remove "Media play failed" overlays
+      document.body.querySelectorAll<HTMLElement>(":scope > div").forEach((el) => {
+        const txt = el.textContent || "";
+        if (txt.includes("Media play failed") || txt.includes("Resume")) el.remove();
       });
     };
 
-    hideInsideZego();
-    const observer = new MutationObserver(hideInsideZego);
+    // Run immediately and on every DOM change
+    killZegoHangup();
+    const observer = new MutationObserver(killZegoHangup);
     observer.observe(document.body, { childList: true, subtree: true });
 
     return () => {
