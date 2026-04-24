@@ -145,66 +145,51 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
     setZegoRenderMatch(null);
   }, [match]);
 
-  // FIX 1: Aggressively remove ALL Zego-rendered buttons (hangup etc.) via DOM + style injection
+  // Remove Zego's internal hangup button — scoped ONLY to the zego container
   useEffect(() => {
-    // Inject global CSS that nukes every button inside any Zego container
+    // Inject CSS scoped to .rcp-zego-fill only
     const style = document.createElement("style");
     style.id = "zego-kill-ui";
     style.textContent = `
-      /* Kill any element whose class contains these fragments anywhere in the DOM */
-      [class*="ZegoRoom"] button,
-      [class*="zegoRoom"] button,
-      [class*="zego-room"] button,
-      [class*="ZegoFooter"],
-      [class*="zegoFooter"],
-      [class*="ZegoToolbar"],
-      [class*="zegoToolbar"],
-      [class*="ZegoLeave"],
-      [class*="zegoLeave"],
-      [class*="ZegoHangup"],
-      [id*="zego"] button,
-      [id*="Zego"] button {
+      /* Zego renders a red hangup button inside its own container.
+         We hide it by targeting the bottom-most direct child div of the zego fill
+         that contains buttons — WITHOUT touching anything outside .rcp-zego-fill */
+      .rcp-zego-fill > div > div:last-child > button,
+      .rcp-zego-fill > div > div:last-child:has(button) {
         display: none !important;
         visibility: hidden !important;
+        height: 0 !important;
+        overflow: hidden !important;
         pointer-events: none !important;
-        width: 0 !important; height: 0 !important;
-        overflow: hidden !important; opacity: 0 !important;
       }
     `;
     if (!document.getElementById("zego-kill-ui")) {
       document.head.appendChild(style);
     }
 
-    // Also remove via MutationObserver — catches dynamically injected buttons
-    const hideZegoButtons = (root: Element | Document = document) => {
-      // Find all buttons that look like Zego's hangup (red background, phone icon SVG)
-      root.querySelectorAll<HTMLElement>("button, [role='button']").forEach((btn) => {
-        const bg = window.getComputedStyle(btn).backgroundColor;
-        const isRed = bg.includes("220, 38") || bg.includes("239, 68") || bg.includes("185, 28") || bg.includes("220,38") || bg.includes("239,68");
-        const hasPhone = btn.querySelector("svg") !== null &&
-          (btn.innerHTML.includes("phone") || btn.innerHTML.includes("Phone") ||
-           btn.innerHTML.includes("M6.6") || btn.innerHTML.includes("hangup") ||
-           btn.title?.toLowerCase().includes("leave") ||
-           btn.getAttribute("aria-label")?.toLowerCase().includes("leave"));
-        if (isRed || hasPhone) {
-          btn.style.setProperty("display", "none", "important");
-          btn.style.setProperty("visibility", "hidden", "important");
-          btn.style.setProperty("pointer-events", "none", "important");
-        }
+    // MutationObserver — only scan INSIDE .rcp-zego-fill, never the whole page
+    const hideInsideZego = () => {
+      const zegoRoot = document.querySelector(".rcp-zego-fill");
+      if (!zegoRoot) return;
+
+      zegoRoot.querySelectorAll<HTMLElement>("button, [role='button']").forEach((btn) => {
+        btn.style.setProperty("display", "none", "important");
+        btn.style.setProperty("visibility", "hidden", "important");
+        btn.style.setProperty("pointer-events", "none", "important");
       });
-      // Also remove "Media play failed" overlays
-      root.querySelectorAll<HTMLElement>("div, span").forEach((el) => {
-        if ((el.textContent || "").includes("Media play failed") || (el.textContent || "").includes("Resume")) {
-          let target: HTMLElement = el;
-          while (target.parentElement && target.parentElement !== document.body) target = target.parentElement;
-          target.remove();
+
+      // Remove "Media play failed" overlays (these appear at document.body level)
+      document.body.querySelectorAll<HTMLElement>("div").forEach((el) => {
+        if (el.parentElement === document.body &&
+            ((el.textContent || "").includes("Media play failed") || (el.textContent || "").includes("Resume"))) {
+          el.remove();
         }
       });
     };
 
-    hideZegoButtons();
-    const observer = new MutationObserver(() => hideZegoButtons());
-    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["style", "class"] });
+    hideInsideZego();
+    const observer = new MutationObserver(hideInsideZego);
+    observer.observe(document.body, { childList: true, subtree: true });
 
     return () => {
       observer.disconnect();
@@ -473,8 +458,7 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
           width: 100%; height: 100%;
         }
 
-        /* FIX 1: Nuke ALL Zego built-in UI chrome — hangup, toolbars, overlays */
-        /* Target by class fragments */
+        /* Hide ONLY Zego's internal chrome — scoped strictly to .rcp-zego-fill */
         .rcp-zego-fill [class*="footer"],
         .rcp-zego-fill [class*="Footer"],
         .rcp-zego-fill [class*="leave"],
@@ -482,25 +466,13 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
         .rcp-zego-fill [class*="hangup"],
         .rcp-zego-fill [class*="Hangup"],
         .rcp-zego-fill [class*="toolbar"],
-        .rcp-zego-fill [class*="Toolbar"],
-        .rcp-zego-fill [class*="bottom"],
-        .rcp-zego-fill [class*="Bottom"],
-        .rcp-zego-fill [class*="control"],
-        .rcp-zego-fill [class*="Control"],
-        .rcp-zego-fill [class*="action"],
-        .rcp-zego-fill [class*="Action"],
-        .rcp-zego-fill [class*="bar"],
-        .rcp-zego-fill [class*="Bar"],
-        .rcp-zego-fill button,
-        .rcp-zego-fill [role="button"] {
+        .rcp-zego-fill [class*="Toolbar"] {
           display: none !important;
           visibility: hidden !important;
           pointer-events: none !important;
-          width: 0 !important;
           height: 0 !important;
-          opacity: 0 !important;
-          position: absolute !important;
           overflow: hidden !important;
+          opacity: 0 !important;
         }
         /* Make Zego's root container and video grid fill everything */
         .rcp-zego-fill > div,
@@ -511,7 +483,6 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
           max-height: 100% !important;
           background: #0d0d10 !important;
         }
-        /* Zego video tiles — fill available height fully */
         .rcp-zego-fill video {
           width: 100% !important;
           height: 100% !important;
