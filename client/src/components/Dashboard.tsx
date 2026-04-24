@@ -216,37 +216,24 @@ function StatPill({ value, label }: { value: string | number; label: string }) {
 }
 
 // ─── HeroCard ────────────────────────────────────────────────────────────────
-function HeroCard({
-  onStartRandom,
-  isDesktop,
-  onTrending,
-}: { onStartRandom: () => void; isDesktop: boolean; onTrending: () => void }) {
+function HeroCard({ onStartRandom }: { onStartRandom: () => void }) {
   return (
     <div style={{
       position: "relative", overflow: "hidden",
-      background:
-        "radial-gradient(circle at 18% 80%, rgba(34,211,238,0.08), transparent 34%), radial-gradient(circle at 82% 78%, rgba(244,114,182,0.1), transparent 34%), linear-gradient(180deg, rgba(13,17,29,0.98), rgba(8,11,18,0.98))",
+      background: C.surfaceAlt,
       border: `1px solid ${C.border}`,
-      borderRadius: isDesktop ? 28 : 22,
-      padding: isDesktop ? "42px 42px 40px" : "30px 22px 28px",
-      marginBottom: 24,
-      animation: "slide-up 0.5s ease",
-      minHeight: isDesktop ? 520 : undefined,
-      display: "flex",
-      flexDirection: "column",
-      alignItems: "center",
-      justifyContent: "center",
-      textAlign: "center",
+      borderRadius: 20, padding: "28px 24px 24px",
+      marginBottom: 24, animation: "slide-up 0.5s ease",
     }}>
       {/* Decorative glow */}
       <div style={{
-        position: "absolute", top: -120, right: -60, width: 360, height: 360,
-        background: "radial-gradient(circle, rgba(167,139,250,0.18) 0%, transparent 70%)",
+        position: "absolute", top: -80, right: -80, width: 280, height: 280,
+        background: "radial-gradient(circle, rgba(167,139,250,0.12) 0%, transparent 70%)",
         pointerEvents: "none",
       }} />
       <div style={{
-        position: "absolute", bottom: -90, left: -80, width: 320, height: 320,
-        background: "radial-gradient(circle, rgba(34,211,238,0.12) 0%, transparent 70%)",
+        position: "absolute", bottom: -40, left: -40, width: 200, height: 200,
+        background: "radial-gradient(circle, rgba(34,211,238,0.08) 0%, transparent 70%)",
         pointerEvents: "none",
       }} />
       {/* Scan line */}
@@ -256,98 +243,53 @@ function HeroCard({
         animation: "scan 3s linear infinite", pointerEvents: "none",
       }} />
 
-      <div style={{ position: "relative", width: "100%", maxWidth: 980 }}>
-        <div style={{ display: "flex", justifyContent: "center", marginBottom: isDesktop ? 16 : 8 }}>
-          <LiveBadge label="LIVE AT LPU, CAMPUS CIRCLES, AND MORE" />
-        </div>
+      <div style={{ position: "relative" }}>
+        <LiveBadge label="LIVE ON CAMPUS" />
 
         <h1 style={{
           fontFamily: "'Syne', sans-serif",
-          fontSize: isDesktop ? "clamp(4.4rem, 9vw, 7.2rem)" : "clamp(2.4rem, 13vw, 4rem)",
-          fontWeight: 800,
-          lineHeight: isDesktop ? 0.92 : 0.96,
-          color: C.text,
-          margin: "0 0 10px",
-          letterSpacing: "-0.08em",
-          textTransform: "uppercase",
+          fontSize: "clamp(1.6rem, 5vw, 2rem)",
+          fontWeight: 800, lineHeight: 1.15,
+          color: C.text, margin: "14px 0 6px",
+          letterSpacing: "-0.03em",
         }}>
-          Re-Imagine
-          <br />
+          Connect.<br />
           <span style={{
             background: "linear-gradient(90deg, #a78bfa, #22d3ee)",
             WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
             backgroundClip: "text",
-            display: "inline-block",
-          }}>Campus Life.</span>
+          }}>Witness. Vibe.</span>
         </h1>
 
         <p style={{
-          fontSize: isDesktop ? "clamp(1.15rem, 2vw, 1.35rem)" : "0.94rem",
-          color: "rgba(241,245,249,0.6)",
-          lineHeight: isDesktop ? 1.6 : 1.7,
-          margin: "0 auto 28px",
-          maxWidth: isDesktop ? 860 : 360,
-          fontFamily: "'DM Sans', sans-serif",
+          fontSize: "0.8rem", color: C.textMuted, lineHeight: 1.65,
+          margin: "0 0 22px", maxWidth: 280, fontFamily: "'DM Sans', sans-serif",
         }}>
-          The high-frequency social layer of your university. Meet people in real time, build your circle faster, and never miss the conversations that matter.
+          The high-frequency social layer of your campus. Real-time chats, instant connections, zero noise.
         </p>
 
-        <div style={{
-          display: "flex",
-          flexDirection: isDesktop ? "row" : "column",
-          alignItems: "center",
-          justifyContent: "center",
-          gap: 14,
-          width: "100%",
-          maxWidth: isDesktop ? 720 : "100%",
-          margin: "0 auto",
-        }}>
-          <button
-            onClick={onStartRandom}
-            style={{
-              display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8,
-              background: "linear-gradient(135deg, #22d3ee, #06b6d4)",
-              color: "#041016", fontWeight: 800, fontSize: isDesktop ? "1rem" : "0.9rem",
-              padding: isDesktop ? "0 34px" : "0 22px",
-              minHeight: isDesktop ? 64 : 54,
-              borderRadius: 18,
-              border: "none",
-              cursor: "pointer",
-              boxShadow: "0 14px 38px rgba(34,211,238,0.25)",
-              fontFamily: "'Syne', sans-serif", letterSpacing: "0.01em",
-              transition: "transform 0.15s, box-shadow 0.15s",
-              width: isDesktop ? "min(320px, 48%)" : "100%",
-            }}
-            onMouseEnter={e => {
-              (e.currentTarget as HTMLElement).style.transform = "translateY(-2px)";
-              (e.currentTarget as HTMLElement).style.boxShadow = "0 18px 42px rgba(34,211,238,0.34)";
-            }}
-            onMouseLeave={e => {
-              (e.currentTarget as HTMLElement).style.transform = "translateY(0)";
-              (e.currentTarget as HTMLElement).style.boxShadow = "0 14px 38px rgba(34,211,238,0.25)";
-            }}
-          >
-            <Zap size={16} /> Claim Your Circle
-          </button>
-
-          <button
-            onClick={onTrending}
-            style={{
-              display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8,
-              background: "rgba(255,255,255,0.02)",
-              color: C.text, fontWeight: 700, fontSize: isDesktop ? "1rem" : "0.9rem",
-              padding: isDesktop ? "0 34px" : "0 22px",
-              minHeight: isDesktop ? 64 : 54,
-              borderRadius: 18,
-              border: `1px solid ${C.border}`,
-              cursor: "pointer",
-              fontFamily: "'Syne', sans-serif", letterSpacing: "0.01em",
-              width: isDesktop ? "min(320px, 48%)" : "100%",
-            }}
-          >
-            <TrendingUp size={16} /> See What&apos;s Trending
-          </button>
-        </div>
+        <button
+          onClick={onStartRandom}
+          style={{
+            display: "inline-flex", alignItems: "center", gap: 8,
+            background: "linear-gradient(135deg, #7c3aed, #a78bfa)",
+            color: "#fff", fontWeight: 700, fontSize: "0.84rem",
+            padding: "11px 22px", borderRadius: 100, border: "none",
+            cursor: "pointer", boxShadow: "0 4px 24px rgba(124,58,237,0.4)",
+            fontFamily: "'Syne', sans-serif", letterSpacing: "0.02em",
+            transition: "transform 0.15s, box-shadow 0.15s",
+          }}
+          onMouseEnter={e => {
+            (e.currentTarget as HTMLElement).style.transform = "scale(1.04)";
+            (e.currentTarget as HTMLElement).style.boxShadow = "0 6px 32px rgba(124,58,237,0.55)";
+          }}
+          onMouseLeave={e => {
+            (e.currentTarget as HTMLElement).style.transform = "scale(1)";
+            (e.currentTarget as HTMLElement).style.boxShadow = "0 4px 24px rgba(124,58,237,0.4)";
+          }}
+        >
+          <Zap size={14} /> Start Random Chat
+        </button>
       </div>
     </div>
   );
@@ -500,8 +442,6 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
   const typingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const compInputRef = useRef<HTMLInputElement>(null);
-  const selectedFriendIdRef = useRef<string | null>(null);
-  const conversationOpenRef = useRef(false);
 
   const [zegoConfig, setZegoConfig] = useState<{ appId: number; serverSecret: string } | null>(null);
   const [activeCall, setActiveCall] = useState<{ roomId: string; isVideo: boolean } | null>(null);
@@ -538,11 +478,6 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
 
   const conversationIsOpen = activeTab === "chat" && !!selectedFriend;
 
-  useEffect(() => {
-    selectedFriendIdRef.current = selectedFriend?.id ?? null;
-    conversationOpenRef.current = activeTab === "chat" && !!selectedFriend;
-  }, [activeTab, selectedFriend?.id]);
-
   const filteredDiscoverUsers = useMemo(
     () => nameFilter.trim()
       ? discoverUsers.filter((u) => u.fullName.toLowerCase().includes(nameFilter.trim().toLowerCase()))
@@ -555,26 +490,15 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
     const socket = connectSocket(token);
 
     socket.on("message:new", (msg: Message) => {
-      setMessages((c) => {
-        if (c.some((e) => e.id === msg.id)) return c;
-        return [...c, msg];
-      });
+      setMessages((c) => (c.some((e) => e.id === msg.id) ? c : [...c, msg]));
       const otherId = msg.senderId === user.id ? (msg as any).receiverId ?? "" : msg.senderId;
       if (msg.content) setLastMessages((c) => ({ ...c, [otherId]: msg.content! }));
 
-      if (
-        selectedFriendIdRef.current === msg.senderId &&
-        conversationOpenRef.current &&
-        document.visibilityState === "visible"
-      ) {
+      if (selectedFriend?.id === msg.senderId && conversationIsOpen && document.visibilityState === "visible") {
         socket.emit("message:read", { messageIds: [msg.id], senderId: msg.senderId });
-        setUnreadCounts((c) => (c[msg.senderId] ? { ...c, [msg.senderId]: 0 } : c));
+        setUnreadCounts((c) => ({ ...c, [msg.senderId]: 0 }));
       } else if (msg.senderId !== user.id) {
-        setUnreadCounts((c) => {
-          const nextCount = Math.min((c[msg.senderId] ?? 0) + 1, 99);
-          if (c[msg.senderId] === nextCount) return c;
-          return { ...c, [msg.senderId]: nextCount };
-        });
+        setUnreadCounts((c) => ({ ...c, [msg.senderId]: Math.min((c[msg.senderId] ?? 0) + 1, 99) }));
       }
     });
 
@@ -582,10 +506,10 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
       setMessages((c) => c.map((m) => messageIds.includes(m.id) ? { ...m, isRead: true } : m));
     });
     socket.on("typing:started", ({ typerId }: { typerId: string }) => {
-      if (selectedFriendIdRef.current === typerId) setPartnerTyping(true);
+      if (selectedFriend?.id === typerId) setPartnerTyping(true);
     });
     socket.on("typing:stopped", ({ typerId }: { typerId: string }) => {
-      if (selectedFriendIdRef.current === typerId) setPartnerTyping(false);
+      if (selectedFriend?.id === typerId) setPartnerTyping(false);
     });
     socket.on("call:incoming", (p: typeof incomingCall) => setIncomingCall(p));
     socket.on("call:accepted", ({ roomId }: { roomId: string }) => {
@@ -607,7 +531,7 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
       disconnectSocket();
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, user.id]);
+  }, [token, selectedFriend?.id, conversationIsOpen, user.id]);
 
   useEffect(() => {
     void Promise.all([
@@ -656,7 +580,7 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
       getSocket()?.emit("message:read", { messageIds: unread, senderId: otherId });
       setMessages((c) => c.map((m) => unread.includes(m.id) ? { ...m, isRead: true } : m));
     }
-    setUnreadCounts((c) => (c[otherId] ? { ...c, [otherId]: 0 } : c));
+    setUnreadCounts((c) => ({ ...c, [otherId]: 0 }));
   }
 
   async function sendFriendRequest(id: string) {
@@ -673,12 +597,8 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
   }
 
   function openChat(friend: User) {
-    selectedFriendIdRef.current = friend.id;
-    conversationOpenRef.current = true;
     setSelectedFriend(friend);
     setMessages([]);
-    setPartnerTyping(false);
-    setUnreadCounts((c) => (c[friend.id] ? { ...c, [friend.id]: 0 } : c));
     setActiveTab("chat");
   }
   function goBack() {
@@ -813,11 +733,7 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
       </div>
 
       <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden", padding: isDesktop ? 28 : 20, minHeight: 0 }}>
-        <HeroCard
-          onStartRandom={() => navigate("/app/random")}
-          onTrending={() => setActiveTab("discover")}
-          isDesktop={isDesktop}
-        />
+        <HeroCard onStartRandom={() => navigate("/app/random")} />
 
         <div style={{
           display: "grid",
@@ -1400,165 +1316,27 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
         background: C.bg, color: C.text,
         fontFamily: "'DM Sans', sans-serif",
         overflow: "hidden",
+        /* Desktop: center and limit max-width for chat-app feel */
       }}>
+        {/* Desktop layout wrapper */}
         <div style={{
-          flex: 1,
-          overflow: "hidden",
-          display: isDesktop ? "grid" : "flex",
-          gridTemplateColumns: isDesktop ? "248px minmax(0, 1fr)" : undefined,
-          flexDirection: isDesktop ? undefined : "column",
+          flex: 1, overflow: "hidden",
+          display: "flex", flexDirection: "column",
+          maxWidth: 480,
+          margin: "0 auto",
+          width: "100%",
           minHeight: 0,
         }}>
-          {isDesktop && (
-            <aside style={{
-              borderRight: `1px solid ${C.border}`,
-              background: "linear-gradient(180deg, rgba(17,24,39,0.78), rgba(8,11,18,0.98))",
-              padding: "26px 18px",
-              display: "flex",
-              flexDirection: "column",
-              gap: 18,
-            }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "0 8px" }}>
-                <div style={{
-                  width: 34, height: 34, borderRadius: 10,
-                  background: "linear-gradient(135deg, #7c3aed, #22d3ee)",
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  boxShadow: "0 10px 30px rgba(124,58,237,0.35)",
-                }}>
-                  <Radio size={16} color="#fff" />
-                </div>
-                <div>
-                  <div style={{
-                    fontFamily: "'Syne', sans-serif",
-                    fontWeight: 800,
-                    fontSize: "1.12rem",
-                    letterSpacing: "-0.03em",
-                    color: C.text,
-                  }}>
-                    CAMPUS<span style={{ color: C.accent }}>·</span>
-                  </div>
-                  <div style={{
-                    fontSize: "0.68rem",
-                    color: C.textDim,
-                    letterSpacing: "0.12em",
-                    textTransform: "uppercase",
-                  }}>
-                    Student Network
-                  </div>
-                </div>
-              </div>
+          <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column", minHeight: 0 }}>
+            {activeTab === "home"     && <HomeScreen />}
+            {activeTab === "discover" && <DiscoverScreen />}
+            {activeTab === "messages" && <MessagesScreen />}
+            {activeTab === "chat"     && <ChatScreen />}
+            {activeTab === "profile"  && <ProfileScreen />}
+          </div>
 
-              <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 6 }}>
-                {tabs.map((tab) => {
-                  const active = navActive(tab.id);
-                  return (
-                    <button
-                      key={tab.id}
-                      className="desktop-nav-btn"
-                      onClick={() => {
-                        if (tab.id === "messages") setSelectedFriend(null);
-                        setActiveTab(tab.id);
-                      }}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 12,
-                        padding: "12px 14px",
-                        borderRadius: 14,
-                        border: `1px solid ${active ? "rgba(167,139,250,0.26)" : C.border}`,
-                        background: active ? "rgba(167,139,250,0.1)" : "transparent",
-                        color: active ? C.accent : C.textMuted,
-                        cursor: "pointer",
-                        position: "relative",
-                        textAlign: "left",
-                        fontFamily: "'DM Sans', sans-serif",
-                        fontWeight: active ? 700 : 600,
-                      }}
-                    >
-                      <span style={{
-                        width: 32,
-                        height: 32,
-                        borderRadius: 10,
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        background: active ? "rgba(167,139,250,0.14)" : "rgba(255,255,255,0.04)",
-                        color: active ? C.accent : C.textDim,
-                      }}>
-                        {tab.icon}
-                      </span>
-                      <span style={{ flex: 1 }}>{tab.label}</span>
-                      {tab.badge && tab.badge > 0 ? (
-                        <span style={{
-                          background: C.accentPink,
-                          color: "#fff",
-                          minWidth: 20,
-                          height: 20,
-                          borderRadius: 999,
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          fontSize: "0.65rem",
-                          fontWeight: 800,
-                          padding: "0 6px",
-                          fontFamily: "'Syne', sans-serif",
-                        }}>
-                          {tab.badge > 99 ? "99+" : tab.badge}
-                        </span>
-                      ) : null}
-                    </button>
-                  );
-                })}
-              </div>
-
-              <div style={{
-                marginTop: "auto",
-                padding: "16px 14px",
-                borderRadius: 16,
-                background: "rgba(255,255,255,0.03)",
-                border: `1px solid ${C.border}`,
-              }}>
-                <div style={{
-                  fontSize: "0.72rem",
-                  letterSpacing: "0.12em",
-                  textTransform: "uppercase",
-                  color: C.textDim,
-                  marginBottom: 8,
-                  fontFamily: "'Syne', sans-serif",
-                }}>
-                  Live Status
-                </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-                  <span style={{
-                    width: 8, height: 8, borderRadius: "50%",
-                    background: C.accentGreen, display: "inline-block", animation: "blink 1.5s infinite",
-                  }} />
-                  <span style={{ fontSize: "0.82rem", color: C.text, fontWeight: 600 }}>
-                    {friends.length} friends active
-                  </span>
-                </div>
-                <div style={{ fontSize: "0.78rem", color: C.textMuted, lineHeight: 1.55 }}>
-                  Desktop now uses a full workspace instead of the phone-sized shell.
-                </div>
-              </div>
-            </aside>
-          )}
-
-          <div style={{
-            flex: 1,
-            overflow: "hidden",
-            display: "flex",
-            flexDirection: "column",
-            width: "100%",
-            maxWidth: isDesktop ? "none" : 480,
-            margin: isDesktop ? 0 : "0 auto",
-            minHeight: 0,
-          }}>
-            <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column", minHeight: 0 }}>
-              {renderActiveScreen()}
-            </div>
-
-          {!isDesktop && activeTab !== "chat" && (
+          {/* Bottom Nav */}
+          {activeTab !== "chat" && (
             <nav style={{
               display: "flex",
               height: "calc(64px + env(safe-area-inset-bottom, 0px))",
@@ -1615,7 +1393,6 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
               })}
             </nav>
           )}
-        </div>
         </div>
       </div>
 
