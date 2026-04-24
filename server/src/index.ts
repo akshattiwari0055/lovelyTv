@@ -114,7 +114,7 @@ function createAuthResponse(user: {
   id: string;
   fullName: string;
   email: string;
-  registrationNo: string;
+  registrationNo?: string | null;
   bio: string | null;
   interests: string | null;
 }) {
@@ -166,6 +166,7 @@ app.post("/api/auth/request-otp", async (req, res) => {
     await sendOtpEmail(normalizedEmail, otp);
     return res.json({ success: true, message: "OTP sent to your LPU email." });
   } catch (error) {
+    console.error("OTP email send failed:", error);
     return res.status(500).json({
       message: error instanceof Error ? error.message : "Could not send OTP"
     });
@@ -191,6 +192,7 @@ app.post("/api/auth/check-otp", async (req, res) => {
 app.post("/api/auth/register", async (req, res) => {
   const { fullName, email, password, registrationNo, bio, interests, otp } = req.body as Record<string, string>;
   const normalizedEmail = email?.toLowerCase().trim();
+  const normalizedRegistrationNo = registrationNo?.trim() || null;
 
   if (!fullName || !normalizedEmail || !otp) {
     return res.status(400).json({ message: "All required fields must be filled" });
@@ -208,7 +210,10 @@ app.post("/api/auth/register", async (req, res) => {
 
   const existingUser = await prisma.user.findFirst({
     where: {
-      OR: [{ email: normalizedEmail }, { registrationNo }]
+      OR: [
+        { email: normalizedEmail },
+        ...(normalizedRegistrationNo ? [{ registrationNo: normalizedRegistrationNo }] : [])
+      ]
     }
   });
 
@@ -223,7 +228,7 @@ app.post("/api/auth/register", async (req, res) => {
       fullName,
       email: normalizedEmail,
       passwordHash,
-      registrationNo,
+      registrationNo: normalizedRegistrationNo,
       bio,
       interests,
       emailVerified: true,
@@ -318,23 +323,23 @@ app.post("/api/auth/google", async (req, res) => {
       return res.json(createAuthResponse(updatedUser));
     }
 
-    if (!registrationNo) {
-      return res.status(400).json({ message: "Registration number is required for first-time Google signup" });
-    }
+    const normalizedRegistrationNo = registrationNo?.trim() || null;
 
-    const duplicateRegistration = await prisma.user.findUnique({
-      where: { registrationNo }
-    });
+    if (normalizedRegistrationNo) {
+      const duplicateRegistration = await prisma.user.findUnique({
+        where: { registrationNo: normalizedRegistrationNo }
+      });
 
-    if (duplicateRegistration) {
-      return res.status(409).json({ message: "Registration number is already in use" });
+      if (duplicateRegistration) {
+        return res.status(409).json({ message: "Registration number is already in use" });
+      }
     }
 
     const user = await prisma.user.create({
       data: {
         fullName: googleUser.fullName,
         email: normalizedEmail,
-        registrationNo,
+        registrationNo: normalizedRegistrationNo,
         bio,
         interests,
         googleId: googleUser.googleId,

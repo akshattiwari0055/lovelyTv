@@ -585,7 +585,7 @@ export function LandingPage({ isLoggedIn, onLogout }: LandingPageProps) {
             <span className="lp-live-dot" />
             {stats.onlineNow > 0
               ? `Live at ${stats.onlineNow.toLocaleString()}+ campuses`
-              : "Live at Stanford, NYU, and 50+ more"}
+              : "Live at LPU, CU, and 50+ more"}
           </div>
 
           <h1 className="lp-h1 lp-reveal">RE-IMAGINE</h1>

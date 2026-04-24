@@ -118,7 +118,7 @@ export function AuthScreen({ onAuthenticated, isLoggedIn }: AuthScreenProps) {
       document.body.appendChild(s);
     }
     return () => { mounted = false; };
-  }, [mode, registerForm.registrationNo]);
+  }, [mode]);
 
   async function handleGoogleAuth(credential: string) {
     setError(""); setInfo(""); setLoading(true);
@@ -751,7 +751,7 @@ export function AuthScreen({ onAuthenticated, isLoggedIn }: AuthScreenProps) {
                 </h1>
                 <p>
                   {mode === "register"
-                    ? "Name, Campus email, registration number, OTP. No clutter, no long forms."
+                    ? "Name, Campus email, OTP, and optional profile details. No clutter, no long forms."
                     : "Use your Campus email OTP or Google account to re-enter your verified student network."}
                 </p>
               </div>
@@ -776,7 +776,7 @@ export function AuthScreen({ onAuthenticated, isLoggedIn }: AuthScreenProps) {
                 </div>
                 <div className="aside-metric">
                   <strong>Quick setup</strong>
-                  <span>Name, email OTP &amp; registration number.</span>
+                  <span>Name, email OTP, and optional details.</span>
                 </div>
               </div>
             </aside>
@@ -866,10 +866,10 @@ export function AuthScreen({ onAuthenticated, isLoggedIn }: AuthScreenProps) {
 
                     <div className="form-grid">
                       <label className="form-field">
-                        <span>Registration no.</span>
+                        <span>Registration no. (optional)</span>
                         <div className="input-wrap">
                           <NotebookPen className="ico" size={16} />
-                          <input placeholder="8 digits" value={registerForm.registrationNo}
+                          <input placeholder="8 digits (optional)" value={registerForm.registrationNo}
                             inputMode="numeric" pattern="[0-9]{8}" maxLength={8}
                             onChange={(e) => setRegisterForm(c => ({ ...c, registrationNo: e.target.value.replace(/\D/g, "").slice(0, 8) }))}
                              />
