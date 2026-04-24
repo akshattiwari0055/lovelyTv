@@ -1,363 +1,407 @@
-/**
- * Dashboard.tsx — Redesigned Mobile-First Campus Connect UI
- *
- * FIXES APPLIED:
- * 1. Badge logic — bottom nav shows count of USERS with unread msgs (not total msg count)
- * 2. Chat list badges — shows raw message count per user (WhatsApp style: 3, 1, etc.)
- * 3. Keyboard/focus bug — removed the blur+refocus handleKeyDown hack entirely
- *    Input stays focused; no more keyboard closing on every keystroke.
- */
-
-import {
-  FormEvent, useEffect, useMemo, useRef, useState,
-} from "react";
+import type { CSSProperties, ChangeEvent, FormEvent, ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  ArrowLeft, Camera, Check, CheckCheck, Flame, Home, ImagePlus,
-  Lock, MessageCircle, Phone, Search, Send, ShieldBan,
-  UserCircle2, UserPlus, Users, X,
+  ArrowLeft,
+  Camera,
+  Check,
+  CheckCheck,
+  Crown,
+  Flame,
+  GraduationCap,
+  Home,
+  ImagePlus,
+  Info,
+  Mail,
+  MessageCircle,
+  Phone,
+  Search,
+  Send,
+  ShieldBan,
+  UserPlus,
+  Users,
+  X,
 } from "lucide-react";
 import { api } from "../lib/api";
 import { connectSocket, disconnectSocket, getSocket } from "../lib/socket";
 import {
-  AppNotification, BlockedUserEntry, FriendRequest, Message, User,
+  AppNotification,
+  BlockedUserEntry,
+  FriendRequest,
+  Message,
+  User,
 } from "../types";
 import { VideoRoom } from "./VideoRoom";
 
-// ─── Types ────────────────────────────────────────────────────────────────────
 type DashboardProps = { token: string; user: User; onLogout: () => void };
 type AppTab = "home" | "discover" | "messages" | "chat" | "profile";
+type UserTag = "All Majors" | "Architecture" | "Design" | "Technology";
+
+const phoneFrameStyle: CSSProperties = {
+  width: "100%",
+  maxWidth: 392,
+  height: "min(844px, 100dvh - 24px)",
+  borderRadius: 38,
+  background:
+    "linear-gradient(180deg, rgba(20,20,24,0.98) 0%, rgba(11,11,14,0.98) 100%)",
+  border: "1px solid rgba(255,255,255,0.09)",
+  boxShadow:
+    "0 38px 90px rgba(0,0,0,0.52), inset 0 1px 0 rgba(255,255,255,0.05)",
+  overflow: "hidden",
+  position: "relative",
+  display: "flex",
+  flexDirection: "column",
+};
+
+function fmtTime(value: string) {
+  return new Date(value).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
 
 function getRoomId(a: string, b: string) {
   const [x, y] = [a, b].sort();
   return `call-${x}-${y}`;
 }
 
-const fmt = (v: string) =>
-  new Date(v).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+function getInitials(name: string) {
+  return name
+    .split(" ")
+    .map((part) => part[0] ?? "")
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+}
 
-const initials = (name: string) => name[0]?.toUpperCase() ?? "?";
+function getSubtitle(person: User) {
+  if (person.course && person.year) return `${person.course} · ${person.year}`;
+  if (person.interests) return person.interests;
+  return "Campus member";
+}
 
-// ─── ScreenHeader ─────────────────────────────────────────────────────────────
-function ScreenHeader({
-  title, onBack, right,
-}: { title: string; onBack?: () => void; right?: React.ReactNode }) {
+function getTag(person: User): UserTag {
+  const source = `${person.course ?? ""} ${person.interests ?? ""}`.toLowerCase();
+  if (source.includes("arch")) return "Architecture";
+  if (source.includes("design") || source.includes("art")) return "Design";
+  if (
+    source.includes("computer") ||
+    source.includes("tech") ||
+    source.includes("software") ||
+    source.includes("coding")
+  ) {
+    return "Technology";
+  }
+  return "All Majors";
+}
+
+function getAvatarTone(seed: string) {
+  const tones = [
+    "linear-gradient(135deg, #26272d 0%, #3a3b46 100%)",
+    "linear-gradient(135deg, #2b203a 0%, #4d2f7f 100%)",
+    "linear-gradient(135deg, #252833 0%, #4a5368 100%)",
+    "linear-gradient(135deg, #2f2323 0%, #6c4040 100%)",
+  ];
+  const index = seed.length % tones.length;
+  return tones[index];
+}
+
+function getHeroImage(index: number) {
+  const images = [
+    "https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?auto=format&fit=crop&w=900&q=80",
+    "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=900&q=80",
+    "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=900&q=80",
+    "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=900&q=80",
+  ];
+  return images[index % images.length];
+}
+
+function Screen({
+  children,
+  className,
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
   return (
-    <header style={{
-      display: "flex", alignItems: "center", justifyContent: "space-between",
-      padding: "0 16px", height: 56, flexShrink: 0,
-      background: "rgba(10,14,23,0.97)",
-      borderBottom: "1px solid rgba(255,255,255,0.07)",
-      backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)",
-      width: "100%", boxSizing: "border-box",
-    }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0, flex: 1 }}>
-        {onBack && (
-          <button onClick={onBack} style={S.iconBtn}>
-            <ArrowLeft size={17} />
+    <div
+      className={className}
+      style={{
+        flex: 1,
+        display: "flex",
+        flexDirection: "column",
+        minHeight: 0,
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function TopBar({
+  user,
+  onAvatarClick,
+  showBack,
+  onBack,
+  title,
+  subtitle,
+}: {
+  user: User;
+  onAvatarClick: () => void;
+  showBack?: boolean;
+  onBack?: () => void;
+  title?: string;
+  subtitle?: string;
+}) {
+  return (
+    <header
+      style={{
+        padding: "18px 18px 14px",
+        borderBottom: "1px solid rgba(255,255,255,0.04)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 12,
+        flexShrink: 0,
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 14, minWidth: 0 }}>
+        {showBack ? (
+          <button onClick={onBack} style={styles.roundIcon}>
+            <ArrowLeft size={16} />
           </button>
+        ) : (
+          <div
+            style={{
+              fontSize: "1.72rem",
+              fontWeight: 800,
+              letterSpacing: "-0.06em",
+              color: "#f5f5f7",
+              whiteSpace: "nowrap",
+            }}
+          >
+            CAMPUS <span style={{ color: "#a678ff" }}>•</span>
+          </div>
         )}
-        <span style={{
-          fontSize: "0.96rem", fontWeight: 700, color: "#fff",
-          overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-        }}>{title}</span>
+        {title && (
+          <div style={{ minWidth: 0 }}>
+            <div
+              style={{
+                fontSize: "1.15rem",
+                fontWeight: 800,
+                color: "#f5f5f7",
+                letterSpacing: "-0.03em",
+              }}
+            >
+              {title}
+            </div>
+            {subtitle && (
+              <div
+                style={{
+                  fontSize: "0.72rem",
+                  letterSpacing: "0.08em",
+                  fontWeight: 700,
+                  color: "#a678ff",
+                  textTransform: "uppercase",
+                }}
+              >
+                {subtitle}
+              </div>
+            )}
+          </div>
+        )}
       </div>
-      {right && <div style={{ display: "flex", gap: 8, flexShrink: 0, marginLeft: 8 }}>{right}</div>}
+
+      <button onClick={onAvatarClick} style={styles.avatarChip}>
+        {getInitials(user.fullName)}
+      </button>
     </header>
   );
 }
 
-// ─── Avatar ───────────────────────────────────────────────────────────────────
-function Avatar({ name, size = 40, gradient = "135deg, #ffb84a, #ff8c42" }:
-  { name: string; size?: number; gradient?: string }) {
+function MemberAvatar({
+  name,
+  size = 44,
+  dot,
+}: {
+  name: string;
+  size?: number;
+  dot?: boolean;
+}) {
   return (
-    <div style={{
-      width: size, height: size, borderRadius: "50%", flexShrink: 0,
-      background: `linear-gradient(${gradient})`,
-      display: "flex", alignItems: "center", justifyContent: "center",
-      fontSize: size * 0.38, fontWeight: 800, color: "#1a0e00",
-    }}>{initials(name)}</div>
+    <div style={{ position: "relative", width: size, height: size, flexShrink: 0 }}>
+      <div
+        style={{
+          width: size,
+          height: size,
+          borderRadius: "50%",
+          display: "grid",
+          placeItems: "center",
+          background: getAvatarTone(name),
+          color: "#f5f5f7",
+          fontWeight: 700,
+          fontSize: size * 0.35,
+          border: "1px solid rgba(255,255,255,0.06)",
+        }}
+      >
+        {getInitials(name)}
+      </div>
+      {dot && (
+        <span
+          style={{
+            position: "absolute",
+            right: 1,
+            bottom: 1,
+            width: Math.max(10, size * 0.23),
+            height: Math.max(10, size * 0.23),
+            borderRadius: "50%",
+            background: "#23d968",
+            border: "2px solid #121216",
+          }}
+        />
+      )}
+    </div>
   );
 }
 
-// ─── ChatItem ─────────────────────────────────────────────────────────────────
-// FIX 2: Chat list shows raw unread count per user (WhatsApp style: 3, 1, etc.)
-// No "+N" prefix. Blank when 0 (reserved space kept for layout stability).
-function ChatItem({ friend, unread, lastMsg, active, onClick }:
-  { friend: User; unread: number; lastMsg?: string; active?: boolean; onClick: () => void }) {
+function MemberCard({
+  person,
+  action,
+}: {
+  person: User;
+  action?: React.ReactNode;
+}) {
   return (
-    <button onClick={onClick} style={{
-      display: "flex", alignItems: "center", gap: 12,
-      padding: "13px 16px", width: "100%", textAlign: "left",
-      background: active ? "rgba(255,184,74,0.07)" : "transparent",
-      border: "none", borderBottom: "1px solid rgba(255,255,255,0.05)",
-      cursor: "pointer", boxSizing: "border-box", minWidth: 0,
-      transition: "background 0.15s",
-    }}>
-      <div style={{ position: "relative", flexShrink: 0 }}>
-        <Avatar name={friend.fullName} gradient="135deg, #4ee1b7, #1b8a6b" />
-        {/* Green dot on avatar only when there are unread messages */}
-        {unread > 0 && (
-          <span style={{
-            position: "absolute", top: -2, right: -2,
-            background: "#25d366", width: 10, height: 10,
-            borderRadius: "50%", border: "2px solid #0a0f1c",
-          }} />
-        )}
-      </div>
+    <article
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 14,
+        padding: "14px 16px",
+        borderRadius: 20,
+        border: "1px solid rgba(255,255,255,0.05)",
+        background: "rgba(255,255,255,0.03)",
+      }}
+    >
+      <MemberAvatar name={person.fullName} />
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{
-          fontSize: "0.88rem", fontWeight: unread > 0 ? 700 : 600,
-          color: "#fff", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-        }}>{friend.fullName}</div>
-        <div style={{
-          fontSize: "0.74rem", marginTop: 2,
-          color: unread > 0 ? "rgba(255,184,74,0.9)" : "rgba(255,255,255,0.38)",
-          fontWeight: unread > 0 ? 600 : 400,
-          overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-        }}>{lastMsg ?? (friend.interests || "Tap to chat")}</div>
-      </div>
-
-      {/*
-        FIX 2: WhatsApp-style badge — shows raw count (3, 12, 99+).
-        Space is always reserved so layout doesn't shift when badge appears/disappears.
-      */}
-      <div style={{
-        minWidth: 36, height: 22,
-        display: "flex", alignItems: "center", justifyContent: "center",
-        flexShrink: 0,
-      }}>
-        {unread > 0 && (
-          <span style={{
-            background: "#25d366", color: "#fff",
-            fontSize: "0.65rem", fontWeight: 800,
-            padding: "3px 7px", borderRadius: 100,
-            whiteSpace: "nowrap", minWidth: 20, textAlign: "center",
-          }}>
-            {/* Raw count, capped at 99+ — same as WhatsApp / Telegram */}
-            {unread > 99 ? "99+" : unread}
-          </span>
-        )}
-      </div>
-    </button>
-  );
-}
-
-// ─── UserCard ─────────────────────────────────────────────────────────────────
-function UserCard({ user: u, onAdd }: { user: User; onAdd: () => void }) {
-  const [sent, setSent] = useState(false);
-  return (
-    <article style={{
-      background: "rgba(255,255,255,0.04)",
-      border: "1px solid rgba(255,255,255,0.08)",
-      borderRadius: 16, padding: 16, boxSizing: "border-box",
-      display: "flex", alignItems: "center", gap: 13,
-    }}>
-      <Avatar name={u.fullName} size={46} gradient="135deg, #a78bfa, #7c3aed" />
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: "0.87rem", fontWeight: 700, color: "#fff", marginBottom: 2 }}>
-          {u.fullName}
+        <div
+          style={{
+            color: "#f6f6f8",
+            fontWeight: 700,
+            fontSize: "0.98rem",
+            letterSpacing: "-0.02em",
+            marginBottom: 3,
+          }}
+        >
+          {person.fullName}
         </div>
-        <div style={{ fontSize: "0.73rem", color: "rgba(255,255,255,0.4)", marginBottom: 3 }}>
-          {u.course && u.year
-            ? `${u.course} · ${u.year} Year`
-            : u.interests
-              ? u.interests
-              : "Campus student"}
+        <div
+          style={{
+            color: "rgba(255,255,255,0.42)",
+            fontSize: "0.8rem",
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+          }}
+        >
+          {getSubtitle(person)}
         </div>
-        {u.mutualConnections != null && u.mutualConnections > 0 && (
-          <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: "0.71rem", color: "#ffb84a" }}>
-            <Users size={10} />{u.mutualConnections} mutual
-          </div>
-        )}
       </div>
-      <button onClick={() => { setSent(true); onAdd(); }} disabled={sent} style={{
-        background: sent ? "rgba(255,255,255,0.04)" : "rgba(255,184,74,0.12)",
-        border: `1px solid ${sent ? "rgba(255,255,255,0.08)" : "rgba(255,184,74,0.28)"}`,
-        borderRadius: 10, padding: "8px 14px",
-        fontSize: "0.76rem", fontWeight: 600,
-        color: sent ? "rgba(255,255,255,0.3)" : "#ffb84a",
-        cursor: sent ? "default" : "pointer", flexShrink: 0,
-        display: "flex", alignItems: "center", gap: 5,
-      }}>
-        {sent ? <Check size={13} /> : <UserPlus size={13} />}
-        {sent ? "Sent" : "Add"}
-      </button>
+      {action}
     </article>
   );
 }
 
-// ─── MessageBubble ────────────────────────────────────────────────────────────
-function MessageBubble({ msg, mine }: { msg: Message; mine: boolean }) {
+function ChatBubble({
+  msg,
+  mine,
+}: {
+  msg: Message;
+  mine: boolean;
+}) {
   return (
-    <div style={{ display: "flex", justifyContent: mine ? "flex-end" : "flex-start", padding: "2px 0" }}>
-      <div style={{
-        maxWidth: "72%", padding: "9px 13px",
-        borderRadius: mine ? "18px 18px 4px 18px" : "18px 18px 18px 4px",
-        background: mine ? "linear-gradient(135deg, #ffb84a, #ff8c42)" : "rgba(255,255,255,0.08)",
-        border: mine ? "none" : "1px solid rgba(255,255,255,0.08)",
-        color: mine ? "#1a0e00" : "#dde1ec",
-        fontSize: "0.86rem", lineHeight: 1.5, wordBreak: "break-word", boxSizing: "border-box",
-      }}>
+    <div
+      style={{
+        display: "flex",
+        justifyContent: mine ? "flex-end" : "flex-start",
+        marginBottom: 10,
+      }}
+    >
+      <div
+        style={{
+          maxWidth: "82%",
+          padding: msg.imageUrl ? "10px" : "14px 16px",
+          borderRadius: mine ? "22px 22px 8px 22px" : "22px 22px 22px 8px",
+          background: mine
+            ? "linear-gradient(135deg, #b187ff 0%, #9c74ff 100%)"
+            : "rgba(255,255,255,0.06)",
+          color: mine ? "#17131f" : "#f0f0f3",
+          boxShadow: mine
+            ? "0 14px 30px rgba(166,120,255,0.22)"
+            : "inset 0 1px 0 rgba(255,255,255,0.03)",
+        }}
+      >
         {msg.imageUrl && (
           <img
             src={msg.imageUrl}
-            alt="img"
+            alt="attachment"
             style={{
               width: "100%",
-              maxWidth: "min(260px, 70vw)",
-              height: "auto",
-              borderRadius: 8,
-              marginBottom: 6,
+              maxWidth: 250,
+              borderRadius: 14,
               display: "block",
+              marginBottom: msg.content ? 10 : 0,
             }}
           />
         )}
-        {msg.content && <span>{msg.content}</span>}
-        <div style={{
-          display: "flex", alignItems: "center", gap: 4,
-          justifyContent: "flex-end", marginTop: 4,
-        }}>
-          <small style={{ fontSize: "0.62rem", opacity: 0.55 }}>{fmt(msg.createdAt)}</small>
-          {mine && (msg.isRead
-            ? <CheckCheck size={11} color="#1a0e00" />
-            : <Check size={11} color="rgba(0,0,0,0.4)" />
-          )}
+        {msg.content && (
+          <div style={{ fontSize: "0.96rem", lineHeight: 1.55 }}>{msg.content}</div>
+        )}
+        <div
+          style={{
+            marginTop: 8,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "flex-end",
+            gap: 4,
+            fontSize: "0.68rem",
+            opacity: 0.68,
+          }}
+        >
+          <span>{fmtTime(msg.createdAt)}</span>
+          {mine ? (
+            msg.isRead ? (
+              <CheckCheck size={12} />
+            ) : (
+              <Check size={12} />
+            )
+          ) : null}
         </div>
       </div>
     </div>
   );
 }
 
-// ─── GSAP Hero ────────────────────────────────────────────────────────────────
-function GsapHero({ onStartRandom }: { onStartRandom: () => void }) {
-  const heroRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const loadGsap = () =>
-      new Promise<void>((resolve) => {
-        if ((window as any).gsap) { resolve(); return; }
-        const s = document.createElement("script");
-        s.src = "https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js";
-        s.onload = () => resolve();
-        document.head.appendChild(s);
-      });
-
-    loadGsap().then(() => {
-      const gsap = (window as any).gsap;
-      if (!heroRef.current) return;
-
-      const tl = gsap.timeline({ defaults: { ease: "power3.out" } });
-
-      tl.fromTo(".gsap-badge", { opacity: 0, y: -16, scale: 0.85 }, { opacity: 1, y: 0, scale: 1, duration: 0.5 })
-        .fromTo(".gsap-line1", { opacity: 0, y: 40, skewY: 4 }, { opacity: 1, y: 0, skewY: 0, duration: 0.65 }, "-=0.2")
-        .fromTo(".gsap-line2", { opacity: 0, y: 40, skewY: 4 }, { opacity: 1, y: 0, skewY: 0, duration: 0.65 }, "-=0.45")
-        .fromTo(".gsap-desc", { opacity: 0, y: 22 }, { opacity: 1, y: 0, duration: 0.55 }, "-=0.3")
-        .fromTo(".gsap-cta", { opacity: 0, scale: 0.88, y: 12 }, { opacity: 1, scale: 1, y: 0, duration: 0.5 }, "-=0.2");
-
-      gsap.utils.toArray(".gsap-particle").forEach((el: any, i: number) => {
-        gsap.to(el, {
-          y: `${-14 - i * 6}px`,
-          x: `${(i % 2 === 0 ? 1 : -1) * (8 + i * 3)}px`,
-          duration: 2.2 + i * 0.4,
-          repeat: -1,
-          yoyo: true,
-          ease: "sine.inOut",
-          delay: i * 0.3,
-        });
-      });
-
-      gsap.to(".gsap-glow", {
-        opacity: 0.35,
-        scale: 1.18,
-        duration: 2.6,
-        repeat: -1,
-        yoyo: true,
-        ease: "sine.inOut",
-      });
-    });
-  }, []);
-
-  return (
-    <div ref={heroRef} style={{
-      position: "relative", overflow: "hidden",
-      background: "linear-gradient(135deg, #0d2137 0%, #0a1628 55%, #111a2e 100%)",
-      border: "1px solid rgba(255,184,74,0.18)", borderRadius: 20,
-      padding: "32px 22px 28px", marginBottom: 22,
-      minHeight: 220,
-    }}>
-      <div className="gsap-glow" style={{
-        position: "absolute", top: -70, right: -70, width: 260, height: 260,
-        borderRadius: "50%",
-        background: "radial-gradient(circle, rgba(255,184,74,0.22) 0%, transparent 70%)",
-        pointerEvents: "none", opacity: 0.2,
-      }} />
-
-      {[
-        { top: "18%", left: "72%", size: 5, color: "#ffb84a" },
-        { top: "62%", left: "82%", size: 3.5, color: "#ff8c42" },
-        { top: "30%", left: "88%", size: 4, color: "rgba(255,184,74,0.5)" },
-        { top: "75%", left: "65%", size: 2.5, color: "#fff" },
-      ].map((p, i) => (
-        <div key={i} className="gsap-particle" style={{
-          position: "absolute", top: p.top, left: p.left,
-          width: p.size, height: p.size, borderRadius: "50%",
-          background: p.color, pointerEvents: "none", opacity: 0.7,
-        }} />
-      ))}
-
-      <div style={{ position: "relative", zIndex: 1 }}>
-        <div className="gsap-badge" style={{ opacity: 0, ...S.heroBadge }}>
-          <span style={S.heroDot} /> LIVE CAMPUS CHAT
-        </div>
-
-        <div style={{ overflow: "hidden", marginBottom: 4 }}>
-          <h1 className="gsap-line1" style={{ ...S.heroTitle, opacity: 0, margin: "14px 0 0" }}>
-            Talk to someone
-          </h1>
-        </div>
-
-        <div style={{ overflow: "hidden", marginBottom: 10 }}>
-          <h1 className="gsap-line2" style={{
-            ...S.heroTitle, opacity: 0, margin: "0 0 0",
-            background: "linear-gradient(90deg, #ffb84a 0%, #ff8c42 50%, #ffda8a 100%)",
-            WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text",
-          }}>
-            new from campus ✦
-          </h1>
-        </div>
-
-        <p className="gsap-desc" style={{
-          opacity: 0, fontSize: "0.82rem",
-          color: "rgba(255,255,255,0.42)", margin: "0 0 22px",
-          lineHeight: 1.6, maxWidth: 260,
-        }}>
-          Discover real connections with students around you — instantly, anonymously, authentically.
-        </p>
-
-        <button className="gsap-cta" style={{ ...S.heroCta, opacity: 0 }} onClick={onStartRandom}>
-          <Flame size={15} /> Start Random Chat
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// ─── MAIN DASHBOARD ───────────────────────────────────────────────────────────
 export function Dashboard({ token, user, onLogout }: DashboardProps) {
   const navigate = useNavigate();
   const fileRef = useRef<HTMLInputElement>(null);
   const typingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
-  const compInputRef = useRef<HTMLInputElement>(null);
+  const composerRef = useRef<HTMLInputElement>(null);
 
   const [zegoConfig, setZegoConfig] = useState<{ appId: number; serverSecret: string } | null>(null);
   const [activeCall, setActiveCall] = useState<{ roomId: string; isVideo: boolean } | null>(null);
   const [incomingCall, setIncomingCall] = useState<{
-    callerId: string; callerName: string; isVideo: boolean; roomId: string;
+    callerId: string;
+    callerName: string;
+    isVideo: boolean;
+    roomId: string;
   } | null>(null);
   const [outgoingCall, setOutgoingCall] = useState<{
-    roomId: string; isVideo: boolean; receiverName: string;
+    roomId: string;
+    isVideo: boolean;
+    receiverName: string;
   } | null>(null);
 
   const [discoverUsers, setDiscoverUsers] = useState<User[]>([]);
@@ -368,20 +412,15 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
   const [selectedFriend, setSelectedFriend] = useState<User | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [lastMessages, setLastMessages] = useState<Record<string, string>>({});
-  // unreadCounts: { [userId]: number } — stores per-user unread MESSAGE count
   const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
-
   const [activeTab, setActiveTab] = useState<AppTab>("home");
   const [messageInput, setMessageInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [partnerTyping, setPartnerTyping] = useState(false);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [nameFilter, setNameFilter] = useState("");
+  const [majorFilter, setMajorFilter] = useState<UserTag>("All Majors");
 
-  /**
-   * FIX 1 — Bottom nav badge = number of USERS who have unread messages (not total count).
-   * e.g. Raj sent 3, Akshat sent 1 → badge shows 2 (two users), not 4 (total messages).
-   */
   const usersWithUnread = useMemo(
     () => Object.values(unreadCounts).filter((count) => count > 0).length,
     [unreadCounts]
@@ -389,81 +428,122 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
 
   const conversationIsOpen = activeTab === "chat" && !!selectedFriend;
 
-  const filteredDiscoverUsers = useMemo(
-    () => nameFilter.trim()
-      ? discoverUsers.filter((u) =>
-          u.fullName.toLowerCase().includes(nameFilter.trim().toLowerCase()))
-      : discoverUsers,
-    [discoverUsers, nameFilter]
+  const filteredDiscoverUsers = useMemo(() => {
+    const query = nameFilter.trim().toLowerCase();
+    return discoverUsers.filter((person) => {
+      const matchesText =
+        !query ||
+        person.fullName.toLowerCase().includes(query) ||
+        (person.course ?? "").toLowerCase().includes(query);
+      const matchesMajor =
+        majorFilter === "All Majors" || getTag(person) === majorFilter;
+      return matchesText && matchesMajor;
+    });
+  }, [discoverUsers, majorFilter, nameFilter]);
+
+  const recommendedMembers = useMemo(
+    () => filteredDiscoverUsers.slice(0, 6),
+    [filteredDiscoverUsers]
   );
 
-  // ─── Socket ──────────────────────────────────────────────────────────────
+  const heroMembers = useMemo(() => {
+    const picks = discoverUsers.slice(0, 2);
+    return picks.length ? picks : friends.slice(0, 2);
+  }, [discoverUsers, friends]);
+
   useEffect(() => {
     const socket = connectSocket(token);
 
     socket.on("message:new", (msg: Message) => {
-      setMessages((c) => (c.some((e) => e.id === msg.id) ? c : [...c, msg]));
-      const otherId = msg.senderId === user.id ? (msg as any).receiverId ?? "" : msg.senderId;
-      if (msg.content) setLastMessages((c) => ({ ...c, [otherId]: msg.content! }));
+      setMessages((current) => (current.some((item) => item.id === msg.id) ? current : [...current, msg]));
+      const otherId = msg.senderId === user.id ? msg.receiverId : msg.senderId;
+      if (msg.content) {
+        setLastMessages((current) => ({ ...current, [otherId]: msg.content ?? "" }));
+      }
 
-      if (selectedFriend?.id === msg.senderId && conversationIsOpen && document.visibilityState === "visible") {
-        // Chat is open and visible — mark as read immediately
+      if (
+        selectedFriend?.id === msg.senderId &&
+        conversationIsOpen &&
+        document.visibilityState === "visible"
+      ) {
         socket.emit("message:read", { messageIds: [msg.id], senderId: msg.senderId });
-        setUnreadCounts((c) => ({ ...c, [msg.senderId]: 0 }));
+        setUnreadCounts((current) => ({ ...current, [msg.senderId]: 0 }));
       } else if (msg.senderId !== user.id) {
-        // Increment per-user unread message count (capped at 99 for display)
-        setUnreadCounts((c) => ({
-          ...c,
-          [msg.senderId]: Math.min((c[msg.senderId] ?? 0) + 1, 99),
+        setUnreadCounts((current) => ({
+          ...current,
+          [msg.senderId]: Math.min((current[msg.senderId] ?? 0) + 1, 99),
         }));
       }
     });
 
     socket.on("message:read:update", ({ messageIds }: { messageIds: string[] }) => {
-      setMessages((c) => c.map((m) => messageIds.includes(m.id) ? { ...m, isRead: true } : m));
+      setMessages((current) =>
+        current.map((item) =>
+          messageIds.includes(item.id) ? { ...item, isRead: true } : item
+        )
+      );
     });
+
     socket.on("typing:started", ({ typerId }: { typerId: string }) => {
       if (selectedFriend?.id === typerId) setPartnerTyping(true);
     });
+
     socket.on("typing:stopped", ({ typerId }: { typerId: string }) => {
       if (selectedFriend?.id === typerId) setPartnerTyping(false);
     });
-    socket.on("call:incoming", (p: typeof incomingCall) => setIncomingCall(p));
+
+    socket.on("call:incoming", (payload: typeof incomingCall) => setIncomingCall(payload));
+
     socket.on("call:accepted", ({ roomId }: { roomId: string }) => {
-      setOutgoingCall((cur) => {
-        if (cur?.roomId === roomId) { setActiveCall({ roomId, isVideo: cur.isVideo }); return null; }
-        return cur;
+      setOutgoingCall((current) => {
+        if (current?.roomId === roomId) {
+          setActiveCall({ roomId, isVideo: current.isVideo });
+          return null;
+        }
+        return current;
       });
     });
+
     socket.on("call:declined", () => setOutgoingCall(null));
-    socket.on("notification:new", (n: AppNotification) => {
-      setNotifications((c) => [n, ...c].slice(0, 20));
+
+    socket.on("notification:new", (notice: AppNotification) => {
+      setNotifications((current) => [notice, ...current].slice(0, 20));
       void Promise.all([loadFriends(), loadRequests()]);
     });
 
     return () => {
-      ["message:new","message:read:update","typing:started","typing:stopped",
-       "call:incoming","call:accepted","call:declined","notification:new"]
-        .forEach((e) => socket.off(e));
+      [
+        "message:new",
+        "message:read:update",
+        "typing:started",
+        "typing:stopped",
+        "call:incoming",
+        "call:accepted",
+        "call:declined",
+        "notification:new",
+      ].forEach((event) => socket.off(event));
       disconnectSocket();
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, selectedFriend?.id, conversationIsOpen, user.id]);
+  }, [conversationIsOpen, selectedFriend?.id, token, user.id]);
 
   useEffect(() => {
     void Promise.all([
-      loadDiscover(), loadFriends(), loadRequests(), loadBlockedUsers(),
-      api.get("/zego-config").then((r) => setZegoConfig(r.data)),
+      loadDiscover(),
+      loadFriends(),
+      loadRequests(),
+      loadBlockedUsers(),
+      api.get("/zego-config").then((response) => setZegoConfig(response.data)),
     ]);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     if (!selectedFriend) return;
     getSocket()?.emit("join:conversation", { otherUserId: selectedFriend.id });
-    void loadConvo(selectedFriend.id, conversationIsOpen && document.visibilityState === "visible");
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedFriend?.id, conversationIsOpen]);
+    void loadConversation(
+      selectedFriend.id,
+      conversationIsOpen && document.visibilityState === "visible"
+    );
+  }, [conversationIsOpen, selectedFriend?.id]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -471,103 +551,113 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
 
   useEffect(() => {
     if (activeTab === "chat") {
-      requestAnimationFrame(() => compInputRef.current?.focus());
+      requestAnimationFrame(() => composerRef.current?.focus());
     }
   }, [activeTab, selectedFriend?.id]);
 
-  // ─── API ──────────────────────────────────────────────────────────────────
   async function loadDiscover() {
-    const r = await api.get("/discover");
-    setDiscoverUsers(r.data);
+    const response = await api.get("/discover");
+    setDiscoverUsers(response.data);
   }
-  async function loadFriends() { const r = await api.get("/friends"); setFriends(r.data); }
-  async function loadRequests() { const r = await api.get("/friend-requests"); setRequests(r.data); }
-  async function loadBlockedUsers() { const r = await api.get("/blocked-users"); setBlockedUsers(r.data); }
 
-  async function loadConvo(otherId: string, markRead = false) {
-    const r = await api.get(`/messages/${otherId}`);
-    const msgs: Message[] = r.data.messages;
-    setMessages(msgs);
-    const last = msgs[msgs.length - 1];
-    if (last?.content) setLastMessages((c) => ({ ...c, [otherId]: last.content! }));
-    const unread = msgs.filter((m) => m.senderId === otherId && !m.isRead).map((m) => m.id);
-    if (markRead && unread.length > 0) {
-      getSocket()?.emit("message:read", { messageIds: unread, senderId: otherId });
-      setMessages((c) => c.map((m) => unread.includes(m.id) ? { ...m, isRead: true } : m));
+  async function loadFriends() {
+    const response = await api.get("/friends");
+    setFriends(response.data);
+  }
+
+  async function loadRequests() {
+    const response = await api.get("/friend-requests");
+    setRequests(response.data);
+  }
+
+  async function loadBlockedUsers() {
+    const response = await api.get("/blocked-users");
+    setBlockedUsers(response.data);
+  }
+
+  async function loadConversation(otherId: string, markRead = false) {
+    const response = await api.get(`/messages/${otherId}`);
+    const nextMessages: Message[] = response.data.messages;
+    setMessages(nextMessages);
+    const last = nextMessages[nextMessages.length - 1];
+    if (last?.content) {
+      setLastMessages((current) => ({ ...current, [otherId]: last.content ?? "" }));
     }
-    // Always reset unread count for this user when opening their chat
-    setUnreadCounts((c) => ({ ...c, [otherId]: 0 }));
+    const unread = nextMessages
+      .filter((item) => item.senderId === otherId && !item.isRead)
+      .map((item) => item.id);
+    if (markRead && unread.length) {
+      getSocket()?.emit("message:read", { messageIds: unread, senderId: otherId });
+      setMessages((current) =>
+        current.map((item) =>
+          unread.includes(item.id) ? { ...item, isRead: true } : item
+        )
+      );
+    }
+    setUnreadCounts((current) => ({ ...current, [otherId]: 0 }));
   }
 
   async function sendFriendRequest(id: string) {
     await api.post("/friend-requests", { receiverId: id });
     void loadDiscover();
   }
+
   async function acceptRequest(id: string) {
     await api.post(`/friend-requests/${id}/accept`);
     await Promise.all([loadFriends(), loadRequests()]);
   }
-  async function unblockUser(uid: string) {
-    await api.delete(`/users/${uid}/block`);
+
+  async function unblockUser(userId: string) {
+    await api.delete(`/users/${userId}/block`);
     await Promise.all([loadBlockedUsers(), loadDiscover(), loadFriends(), loadRequests()]);
   }
 
-  // ─── Navigation ───────────────────────────────────────────────────────────
   function openChat(friend: User) {
     setSelectedFriend(friend);
     setMessages([]);
     setActiveTab("chat");
   }
+
   function goBack() {
-    if (activeTab === "chat") { setSelectedFriend(null); setActiveTab("messages"); }
-    else setActiveTab("home");
+    if (activeTab === "chat") {
+      setSelectedFriend(null);
+      setActiveTab("messages");
+      return;
+    }
+    setActiveTab("home");
   }
 
-  // ─── Calls ────────────────────────────────────────────────────────────────
   function startCall(isVideo: boolean) {
     if (!selectedFriend) return;
     const roomId = getRoomId(user.id, selectedFriend.id);
     setOutgoingCall({ roomId, isVideo, receiverName: selectedFriend.fullName });
-    getSocket()?.emit("call:initiate", { receiverId: selectedFriend.id, isVideo, roomId });
+    getSocket()?.emit("call:initiate", {
+      receiverId: selectedFriend.id,
+      isVideo,
+      roomId,
+    });
   }
+
   function acceptCall() {
     if (!incomingCall) return;
-    getSocket()?.emit("call:accept", { callerId: incomingCall.callerId, roomId: incomingCall.roomId });
-    const f = friends.find((x) => x.id === incomingCall.callerId);
-    if (f) openChat(f);
+    getSocket()?.emit("call:accept", {
+      callerId: incomingCall.callerId,
+      roomId: incomingCall.roomId,
+    });
+    const friend = friends.find((item) => item.id === incomingCall.callerId);
+    if (friend) openChat(friend);
     setActiveCall({ roomId: incomingCall.roomId, isVideo: incomingCall.isVideo });
     setIncomingCall(null);
   }
+
   function declineCall() {
     if (!incomingCall) return;
     getSocket()?.emit("call:decline", { callerId: incomingCall.callerId });
     setIncomingCall(null);
   }
 
-  // ─── Messaging ────────────────────────────────────────────────────────────
-  function handleSend(e: FormEvent) {
-    e.preventDefault();
-    if (!selectedFriend || (!messageInput.trim() && !imagePreview)) return;
-    getSocket()?.emit("message:send", {
-      receiverId: selectedFriend.id,
-      content: messageInput,
-      imageUrl: imagePreview,
-    });
-    getSocket()?.emit("typing:stop", { receiverId: selectedFriend.id });
-    setMessageInput("");
-    setImagePreview(null);
-    // Keep focus on input after sending so user can keep typing
-    requestAnimationFrame(() => compInputRef.current?.focus());
-  }
-
-  /**
-   * FIX 3 — Removed the blur+refocus handleKeyDown hack entirely.
-   * That "CHANGE 3" was the root cause of the keyboard-closes-on-every-keystroke bug.
-   * The input is a standard controlled component; React handles it correctly without any blur tricks.
-   * No onKeyDown handler is attached to the composer input.
-   */
-  function handleTyping(e: React.ChangeEvent<HTMLInputElement>) {
-    setMessageInput(e.target.value);
+  function handleTyping(event: ChangeEvent<HTMLInputElement>) {
+    setMessageInput(event.target.value);
     if (!selectedFriend) return;
     if (!isTyping) {
       setIsTyping(true);
@@ -580,588 +670,633 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
     }, 2000);
   }
 
-  function handleImgUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
+  function handleImageUpload(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
     reader.onloadend = () => setImagePreview(reader.result as string);
     reader.readAsDataURL(file);
   }
 
-  // ──────────────────────────────────────────────────────────────────────────
-  // SCREENS
-  // ──────────────────────────────────────────────────────────────────────────
+  function handleSend(event: FormEvent) {
+    event.preventDefault();
+    if (!selectedFriend || (!messageInput.trim() && !imagePreview)) return;
+    getSocket()?.emit("message:send", {
+      receiverId: selectedFriend.id,
+      content: messageInput.trim(),
+      imageUrl: imagePreview,
+    });
+    getSocket()?.emit("typing:stop", { receiverId: selectedFriend.id });
+    setMessageInput("");
+    setImagePreview(null);
+    requestAnimationFrame(() => composerRef.current?.focus());
+  }
 
-  const HomeScreen = () => (
-    <div style={S.screen}>
-      <ScreenHeader
-        title="Campus Connect"
-        right={
-          <div style={S.topAvatar} onClick={() => setActiveTab("profile")} role="button" tabIndex={0}>
-            {initials(user.fullName)}
-          </div>
-        }
-      />
-      <div style={S.scrollArea}>
-        <GsapHero onStartRandom={() => navigate("/app/random")} />
+  const vibeCount = `${(friends.length * 1.4 + discoverUsers.length * 0.6 + 3).toFixed(1)}k`;
+  const onlineCount = Math.max(12, discoverUsers.length + friends.length * 2 + 7);
 
-        <div style={S.section}>
-          <div style={S.sectionHead}>
-            <span style={S.sectionTitle}>Suggested</span>
-            <button style={S.sectionLink} onClick={() => setActiveTab("discover")}>See all</button>
-          </div>
-          {discoverUsers.slice(0, 4).length === 0
-            ? <div style={S.emptyCard}>No suggestions yet.</div>
-            : <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {discoverUsers.slice(0, 4).map((u) => (
-                  <UserCard key={u.id} user={u} onAdd={() => void sendFriendRequest(u.id)} />
-                ))}
-              </div>
-          }
-        </div>
+  const tabs: { id: AppTab; label: string; icon: React.ReactNode; badge?: number }[] = [
+    { id: "home", label: "Club", icon: <Home size={18} /> },
+    { id: "discover", label: "Explore", icon: <Search size={18} /> },
+    { id: "messages", label: "Inbox", icon: <Mail size={18} />, badge: usersWithUnread },
+    { id: "profile", label: "Elite", icon: <Crown size={18} /> },
+  ];
 
-        <div style={S.section}>
-          <div style={S.sectionHead}>
-            <span style={S.sectionTitle}>Active friends</span>
-            <button style={S.sectionLink} onClick={() => setActiveTab("messages")}>See all</button>
-          </div>
-          <div style={{ borderRadius: 14, overflow: "hidden", border: "1px solid rgba(255,255,255,0.06)" }}>
-            {friends.length === 0
-              ? <div style={S.emptyCard}>No friends yet — accept a request to start.</div>
-              : friends.slice(0, 5).map((f) => (
-                  <ChatItem key={f.id} friend={f}
-                    unread={unreadCounts[f.id] ?? 0}
-                    lastMsg={lastMessages[f.id]}
-                    onClick={() => openChat(f)}
+  function renderHome() {
+    return (
+      <Screen>
+        <TopBar user={user} onAvatarClick={() => setActiveTab("profile")} />
+
+        <div style={styles.scrollArea}>
+          <section style={styles.heroCard}>
+            <div style={styles.heroBadge}>• CONNECT INSTANTLY</div>
+            <h1 style={styles.heroTitle}>
+              Experience the
+              <br />
+              <span style={{ fontWeight: 800 }}>Unseen Connection.</span>
+            </h1>
+            <button style={styles.primaryButton} onClick={() => navigate("/app/random")}>
+              <Flame size={16} />
+              START RANDOM CHAT
+            </button>
+          </section>
+
+          <section style={styles.sectionBlock}>
+            <div style={styles.sectionHeader}>
+              <span style={styles.sectionLabel}>CURATED FOR YOU</span>
+              <button style={styles.linkButton} onClick={() => setActiveTab("discover")}>
+                Discover all
+              </button>
+            </div>
+            <div style={{ display: "grid", gap: 12 }}>
+              {recommendedMembers.length ? (
+                recommendedMembers.slice(0, 3).map((person) => (
+                  <MemberCard
+                    key={person.id}
+                    person={person}
+                    action={
+                      <button
+                        onClick={() => void sendFriendRequest(person.id)}
+                        style={styles.memberAction}
+                      >
+                        <UserPlus size={16} />
+                      </button>
+                    }
                   />
                 ))
-            }
+              ) : (
+                <div style={styles.emptyPanel}>No recommendations right now.</div>
+              )}
+            </div>
+          </section>
+
+          <section style={styles.sectionBlock}>
+            <div style={styles.sectionHeader}>
+              <span style={styles.sectionLabel}>ACTIVE DIALOGUE</span>
+              <span style={styles.onlineLabel}>{Math.max(4, friends.length)} ONLINE</span>
+            </div>
+            <div style={{ display: "grid", gap: 12 }}>
+              {friends.length ? (
+                friends.slice(0, 3).map((friend) => (
+                  <MemberCard
+                    key={friend.id}
+                    person={friend}
+                    action={
+                      <button
+                        onClick={() => openChat(friend)}
+                        style={styles.memberActionSecondary}
+                      >
+                        <MessageCircle size={16} />
+                      </button>
+                    }
+                  />
+                ))
+              ) : (
+                <div style={styles.emptyPanel}>
+                  Your inbox will show up here after you add someone from Explore.
+                </div>
+              )}
+            </div>
+          </section>
+
+          <section style={{ display: "grid", gap: 10, marginTop: 8 }}>
+            {heroMembers.map((person, index) => (
+              <article key={person.id} style={styles.photoCard}>
+                <img
+                  src={getHeroImage(index)}
+                  alt={person.fullName}
+                  style={styles.photoImage}
+                />
+                <div style={styles.photoMetaLeft}>
+                  {person.fullName.split(" ")[0]},{person.year?.replace("Year", "") ?? "21"}
+                </div>
+                {index === 1 && <div style={styles.photoMetaRight}>You</div>}
+              </article>
+            ))}
+          </section>
+        </div>
+      </Screen>
+    );
+  }
+
+  function renderDiscover() {
+    const filters: UserTag[] = ["All Majors", "Architecture", "Design", "Technology"];
+
+    return (
+      <Screen>
+        <TopBar
+          user={user}
+          onAvatarClick={() => setActiveTab("profile")}
+          showBack
+          onBack={() => setActiveTab("home")}
+          title="Discover"
+          subtitle="Verified Members"
+        />
+
+        <div style={styles.scrollArea}>
+          <div style={styles.searchWrap}>
+            <Search size={16} style={styles.searchIcon} />
+            <input
+              value={nameFilter}
+              onChange={(event) => setNameFilter(event.target.value)}
+              placeholder="Search by major or year..."
+              style={styles.searchInput}
+            />
+          </div>
+
+          <div style={styles.filterRow}>
+            {filters.map((filter) => (
+              <button
+                key={filter}
+                onClick={() => setMajorFilter(filter)}
+                style={{
+                  ...styles.filterChip,
+                  ...(majorFilter === filter ? styles.filterChipActive : {}),
+                }}
+              >
+                {filter}
+              </button>
+            ))}
+          </div>
+
+          <div style={styles.sectionHeader}>
+            <span style={styles.sectionLabel}>RECOMMENDED</span>
+            <span style={styles.onlineLabel}>{onlineCount} ONLINE</span>
+          </div>
+
+          <div style={{ display: "grid", gap: 12 }}>
+            {recommendedMembers.length ? (
+              recommendedMembers.map((person) => (
+                <MemberCard
+                  key={person.id}
+                  person={person}
+                  action={
+                    <button
+                      onClick={() => void sendFriendRequest(person.id)}
+                      style={styles.memberActionSecondary}
+                    >
+                      <UserPlus size={16} />
+                    </button>
+                  }
+                />
+              ))
+            ) : (
+              <div style={styles.emptyPanel}>No matching members found.</div>
+            )}
           </div>
         </div>
-        <div style={{ height: 20 }} />
-      </div>
-    </div>
-  );
+      </Screen>
+    );
+  }
 
-  const MessagesScreen = () => (
-    <div style={S.screen}>
-      <ScreenHeader title="Messages" onBack={() => setActiveTab("home")} />
-      {requests.length > 0 && (
-        <button onClick={() => setActiveTab("profile")} style={{
-          display: "flex", alignItems: "center", gap: 10, width: "100%",
-          padding: "10px 16px", background: "rgba(255,184,74,0.07)",
-          border: "none", borderBottom: "1px solid rgba(255,184,74,0.14)",
-          cursor: "pointer", boxSizing: "border-box",
-        }}>
-          <div style={{
-            width: 32, height: 32, borderRadius: "50%",
-            background: "rgba(255,184,74,0.14)",
-            display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
-          }}>
-            <UserPlus size={14} color="#ffb84a" />
-          </div>
-          <div style={{ flex: 1, textAlign: "left" }}>
-            <div style={{ fontSize: "0.82rem", fontWeight: 700, color: "#ffb84a" }}>
-              {requests.length} Friend Request{requests.length > 1 ? "s" : ""}
-            </div>
-            <div style={{ fontSize: "0.72rem", color: "rgba(255,255,255,0.38)" }}>Tap to view and accept</div>
-          </div>
-          <span style={{ color: "rgba(255,255,255,0.25)", fontSize: "1.2rem" }}>›</span>
-        </button>
-      )}
-      <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden", minHeight: 0 }}>
-        {friends.length === 0
-          ? <div style={{ padding: 40, textAlign: "center", color: "rgba(255,255,255,0.28)", fontSize: "0.84rem" }}>
-              No conversations yet. Discover and add friends!
-            </div>
-          : friends.map((f) => (
-              <ChatItem key={f.id} friend={f} active={selectedFriend?.id === f.id}
-                unread={unreadCounts[f.id] ?? 0}
-                lastMsg={lastMessages[f.id]}
-                onClick={() => openChat(f)}
-              />
-            ))
-        }
-      </div>
-    </div>
-  );
+  function renderMessages() {
+    return (
+      <Screen>
+        <TopBar
+          user={user}
+          onAvatarClick={() => setActiveTab("profile")}
+          showBack
+          onBack={() => setActiveTab("home")}
+          title="Inbox"
+          subtitle="Private Dialogue"
+        />
 
-  const ChatScreen = () => {
+        <div style={styles.scrollArea}>
+          {requests.length > 0 && (
+            <div style={styles.noticeCard}>
+              <div style={styles.noticeIcon}>
+                <Users size={16} />
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={styles.noticeTitle}>
+                  {requests.length} pending request{requests.length > 1 ? "s" : ""}
+                </div>
+                <div style={styles.noticeText}>Open Elite to review and accept them.</div>
+              </div>
+            </div>
+          )}
+
+          {friends.length ? (
+            <div style={{ display: "grid", gap: 12 }}>
+              {friends.map((friend) => (
+                <button
+                  key={friend.id}
+                  onClick={() => openChat(friend)}
+                  style={styles.threadCard}
+                >
+                  <MemberAvatar name={friend.fullName} dot={(unreadCounts[friend.id] ?? 0) > 0} />
+                  <div style={{ flex: 1, minWidth: 0, textAlign: "left" }}>
+                    <div style={styles.threadHead}>
+                      <strong>{friend.fullName}</strong>
+                      <small>{lastMessages[friend.id] ? "now" : "today"}</small>
+                    </div>
+                    <div style={styles.threadText}>
+                      {lastMessages[friend.id] ?? getSubtitle(friend)}
+                    </div>
+                  </div>
+                  {(unreadCounts[friend.id] ?? 0) > 0 && (
+                    <div style={styles.unreadBadge}>
+                      {unreadCounts[friend.id] > 99 ? "99+" : unreadCounts[friend.id]}
+                    </div>
+                  )}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div style={styles.emptyPanel}>
+              No conversations yet. Add someone from Explore to start chatting.
+            </div>
+          )}
+        </div>
+      </Screen>
+    );
+  }
+
+  function renderChat() {
     if (!selectedFriend) return null;
 
     if (activeCall && zegoConfig) {
       return (
-        <div style={{ ...S.screen, position: "relative" }}>
-          <ScreenHeader title={selectedFriend.fullName} onBack={() => setActiveCall(null)} />
-          <div style={{ flex: 1, background: "#000", position: "relative", minHeight: 0 }}>
+        <Screen>
+          <TopBar
+            user={user}
+            onAvatarClick={() => setActiveTab("profile")}
+            showBack
+            onBack={() => setActiveCall(null)}
+            title={selectedFriend.fullName}
+            subtitle={activeCall.isVideo ? "Video Session" : "Voice Session"}
+          />
+
+          <div style={{ flex: 1, minHeight: 0, background: "#000", position: "relative" }}>
             <VideoRoom
-              appId={zegoConfig.appId} serverSecret={zegoConfig.serverSecret}
-              roomId={activeCall.roomId} userId={user.id} userName={user.fullName}
-              isAudioOnly={!activeCall.isVideo} onJoined={() => {}}
+              appId={zegoConfig.appId}
+              serverSecret={zegoConfig.serverSecret}
+              roomId={activeCall.roomId}
+              userId={user.id}
+              userName={user.fullName}
+              isAudioOnly={!activeCall.isVideo}
+              onJoined={() => {}}
             />
-            <button onClick={() => setActiveCall(null)} style={{
-              position: "absolute", top: 14, right: 14, zIndex: 9999,
-              background: "rgba(255,70,70,0.88)", padding: "8px 18px",
-              borderRadius: 18, border: "none", color: "#fff", cursor: "pointer",
-              fontWeight: 600, display: "flex", alignItems: "center", gap: 6,
-            }}>
-              <Phone size={14} style={{ transform: "rotate(135deg)" }} /> End
+            <button onClick={() => setActiveCall(null)} style={styles.endCallButton}>
+              <Phone size={14} style={{ transform: "rotate(135deg)" }} />
+              End session
             </button>
           </div>
-        </div>
+        </Screen>
       );
     }
 
     return (
-      <div style={S.screen}>
-        <ScreenHeader
-          title={selectedFriend.fullName}
-          onBack={goBack}
-          right={
-            <>
-              <button style={S.iconBtn} onClick={() => startCall(false)} title="Voice call">
-                <Phone size={15} />
-              </button>
-              <button style={S.iconBtn} onClick={() => startCall(true)} title="Video call">
-                <Camera size={15} />
-              </button>
-            </>
-          }
-        />
-
-        {partnerTyping && (
-          <div style={{
-            padding: "5px 16px", fontSize: "0.72rem", color: "rgba(255,255,255,0.4)",
-            flexShrink: 0, background: "rgba(0,0,0,0.12)",
-            borderBottom: "1px solid rgba(255,255,255,0.04)",
-          }}>
-            {selectedFriend.fullName} is typing…
+      <Screen>
+        <header style={styles.chatHeader}>
+          <button onClick={goBack} style={styles.plainIcon}>
+            <ArrowLeft size={17} />
+          </button>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0, flex: 1 }}>
+            <MemberAvatar name={selectedFriend.fullName} size={38} dot />
+            <div style={{ minWidth: 0 }}>
+              <div style={styles.chatName}>{selectedFriend.fullName}</div>
+              <div style={styles.chatStatus}>• ONLINE</div>
+            </div>
           </div>
-        )}
+          <button onClick={() => startCall(false)} style={styles.plainIcon}>
+            <Phone size={16} />
+          </button>
+          <button onClick={() => startCall(true)} style={styles.plainIcon}>
+            <Camera size={16} />
+          </button>
+        </header>
 
-        <div style={{
-          flex: 1, overflowY: "auto", overflowX: "hidden",
-          padding: "12px 14px", display: "flex", flexDirection: "column",
-          gap: 3, minHeight: 0,
-        }}>
-          {messages.length === 0
-            ? <div style={{
-                flex: 1, display: "flex", alignItems: "center", justifyContent: "center",
-                color: "rgba(255,255,255,0.25)", fontSize: "0.84rem", textAlign: "center",
-              }}>
-                Say hello to {selectedFriend.fullName} 👋
-              </div>
-            : messages.map((m) => (
-                <MessageBubble key={m.id} msg={m} mine={m.senderId === user.id} />
-              ))
-          }
+        <div style={styles.chatMessages}>
+          {messages.length === 0 ? (
+            <div style={styles.emptyChatState}>
+              Start the conversation with {selectedFriend.fullName.split(" ")[0]}.
+            </div>
+          ) : (
+            messages.map((msg) => (
+              <ChatBubble key={msg.id} msg={msg} mine={msg.senderId === user.id} />
+            ))
+          )}
+
           {partnerTyping && (
-            <div style={{ display: "flex", padding: "4px 0" }}>
-              <div style={{
-                padding: "9px 13px", borderRadius: "18px 18px 18px 4px",
-                background: "rgba(255,255,255,0.08)", display: "flex", gap: 4, alignItems: "center",
-              }}>
-                {[0, 200, 400].map((delay, i) => (
-                  <span key={i} style={{
-                    width: 5, height: 5, borderRadius: "50%",
-                    background: "rgba(255,255,255,0.5)", display: "inline-block",
-                    animation: `tdot 1.2s ${delay}ms infinite`,
-                  }} />
-                ))}
+            <div style={{ display: "flex", justifyContent: "flex-start", marginBottom: 10 }}>
+              <div style={styles.typingBubble}>
+                <span style={styles.typingDot} />
+                <span style={{ ...styles.typingDot, animationDelay: "0.15s" }} />
+                <span style={{ ...styles.typingDot, animationDelay: "0.3s" }} />
               </div>
             </div>
           )}
+
           <div ref={bottomRef} />
         </div>
 
         {imagePreview && (
-          <div style={{
-            padding: "8px 14px", flexShrink: 0,
-            borderTop: "1px solid rgba(255,255,255,0.07)",
-            display: "flex", alignItems: "center", gap: 10,
-            background: "rgba(0,0,0,0.15)",
-          }}>
-            <img src={imagePreview} alt="preview"
-              style={{ height: 54, borderRadius: 8, objectFit: "cover" }} />
-            <button onClick={() => setImagePreview(null)} style={{
-              width: 22, height: 22, borderRadius: "50%",
-              background: "rgba(255,60,60,0.8)", border: "none",
-              color: "#fff", cursor: "pointer",
-              display: "flex", alignItems: "center", justifyContent: "center",
-            }}><X size={12} /></button>
+          <div style={styles.previewRow}>
+            <img src={imagePreview} alt="preview" style={styles.previewImage} />
+            <button onClick={() => setImagePreview(null)} style={styles.previewClose}>
+              <X size={13} />
+            </button>
           </div>
         )}
 
-        {/*
-          FIX 3: Composer input — NO onKeyDown handler.
-          Standard controlled input; keyboard stays open while typing.
-          fontSize 16px prevents iOS auto-zoom on focus.
-        */}
-        <form onSubmit={handleSend} style={{
-          display: "flex", alignItems: "center", gap: 8,
-          padding: "10px 14px",
-          paddingBottom: "calc(10px + env(safe-area-inset-bottom, 0px))",
-          flexShrink: 0,
-          borderTop: "1px solid rgba(255,255,255,0.08)",
-          background: "rgba(10,14,23,0.97)",
-          backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)",
-          boxSizing: "border-box", width: "100%",
-        }}>
+        <form onSubmit={handleSend} style={styles.chatComposer}>
           <input
-            type="file" accept="image/*"
-            style={{ display: "none" }} ref={fileRef}
-            onChange={handleImgUpload}
+            ref={fileRef}
+            type="file"
+            accept="image/*"
+            onChange={handleImageUpload}
+            style={{ display: "none" }}
           />
-          <button type="button" onClick={() => fileRef.current?.click()} style={S.compIcon}>
-            <ImagePlus size={16} />
+          <button type="button" onClick={() => fileRef.current?.click()} style={styles.plusButton}>
+            <ImagePlus size={17} />
           </button>
           <input
-            ref={compInputRef}
-            style={{ ...S.compInput, fontSize: "16px" }}
-            placeholder="Message…"
+            ref={composerRef}
             value={messageInput}
             onChange={handleTyping}
-            // No onKeyDown — removing the blur/refocus hack fixes the keyboard bug
+            placeholder="Message..."
+            style={styles.chatInput}
             autoComplete="off"
             autoCorrect="off"
             spellCheck={false}
-            enterKeyHint="send"
           />
           <button
             type="submit"
-            disabled={!messageInput.trim() && !imagePreview}
             style={{
-              ...S.compIcon,
-              background: (messageInput.trim() || imagePreview)
-                ? "linear-gradient(135deg, #ffb84a, #ff8c42)"
-                : "rgba(255,255,255,0.05)",
-              color: (messageInput.trim() || imagePreview) ? "#1a0e00" : "rgba(255,255,255,0.25)",
-              border: (messageInput.trim() || imagePreview) ? "none" : "1px solid rgba(255,255,255,0.08)",
+              ...styles.sendButton,
+              opacity: messageInput.trim() || imagePreview ? 1 : 0.55,
             }}
+            disabled={!messageInput.trim() && !imagePreview}
           >
-            <Send size={15} />
+            <Send size={16} />
           </button>
         </form>
-      </div>
+      </Screen>
     );
-  };
+  }
 
-  const DiscoverScreen = () => (
-    <div style={S.screen}>
-      <ScreenHeader title="Discover" onBack={() => setActiveTab("home")} />
-      <div style={{ padding: "12px 16px", flexShrink: 0, borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
-        <div style={{ position: "relative" }}>
-          <Search size={14} style={{
-            position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)",
-            color: "rgba(255,255,255,0.35)", pointerEvents: "none",
-          }} />
-          <input
-            style={{ ...S.filterInput, paddingLeft: 34, fontSize: "16px" }}
-            placeholder="Search by name…"
-            value={nameFilter}
-            onChange={(e) => setNameFilter(e.target.value)}
-            autoComplete="off" autoCorrect="off" spellCheck={false}
-          />
-          {nameFilter && (
-            <button onClick={() => setNameFilter("")} style={{
-              position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)",
-              background: "rgba(255,255,255,0.1)", border: "none", borderRadius: "50%",
-              width: 20, height: 20, cursor: "pointer", color: "rgba(255,255,255,0.5)",
-              display: "flex", alignItems: "center", justifyContent: "center", padding: 0,
-            }}>
-              <X size={11} />
-            </button>
-          )}
-        </div>
-        <div style={{ fontSize: "0.73rem", color: "rgba(255,255,255,0.33)", marginTop: 8 }}>
-          {filteredDiscoverUsers.length} student{filteredDiscoverUsers.length !== 1 ? "s" : ""} found
-          {nameFilter.trim() && (
-            <span style={{ color: "rgba(255,184,74,0.7)", marginLeft: 4 }}>
-              for "{nameFilter.trim()}"
-            </span>
-          )}
-        </div>
-      </div>
-      <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden", padding: "12px 16px", minHeight: 0 }}>
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {filteredDiscoverUsers.map((u) => (
-            <UserCard key={u.id} user={u} onAdd={() => void sendFriendRequest(u.id)} />
-          ))}
-          {filteredDiscoverUsers.length === 0 && (
-            <div style={S.emptyCard}>
-              {nameFilter.trim()
-                ? `No students found matching "${nameFilter.trim()}".`
-                : "No students to discover right now."}
+  function renderProfile() {
+    return (
+      <Screen>
+        <TopBar user={user} onAvatarClick={() => undefined} />
+
+        <div style={styles.scrollArea}>
+          <section style={styles.profileHero}>
+            <div style={styles.profileHalo}>
+              <div style={styles.profileCenter}>{getInitials(user.fullName)}</div>
             </div>
-          )}
-        </div>
-        <div style={{ height: 20 }} />
-      </div>
-    </div>
-  );
+            <div style={styles.profileName}>{user.fullName}</div>
+            <div style={styles.profileHandle}>@{user.fullName.replace(/\s+/g, ".").toUpperCase()}</div>
 
-  const ProfileScreen = () => (
-    <div style={S.screen}>
-      <ScreenHeader title="Profile" onBack={() => setActiveTab("home")} />
-      <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden", padding: 16, minHeight: 0 }}>
-        <div style={{
-          background: "linear-gradient(135deg, #0d2137, #0a1628)",
-          border: "1px solid rgba(255,184,74,0.15)",
-          borderRadius: 18, padding: "24px 20px", marginBottom: 14,
-          display: "flex", flexDirection: "column", alignItems: "center",
-          gap: 12, textAlign: "center", boxSizing: "border-box",
-        }}>
-          <Avatar name={user.fullName} size={74} />
-          <div>
-            <div style={{ fontSize: "1.1rem", fontWeight: 800, color: "#fff" }}>{user.fullName}</div>
-            {(user as any).course && (user as any).year && (
-              <div style={{ fontSize: "0.78rem", color: "rgba(255,255,255,0.4)", marginTop: 3 }}>
-                {(user as any).course} · {(user as any).year} Year
+            <div style={styles.statsGrid}>
+              <div style={styles.statCard}>
+                <strong>{friends.length || 0}</strong>
+                <span>FRIENDS</span>
               </div>
-            )}
-          </div>
-          <div style={{
-            display: "flex", width: "100%",
-            background: "rgba(255,255,255,0.05)", borderRadius: 12,
-            border: "1px solid rgba(255,255,255,0.07)", overflow: "hidden",
-          }}>
-            {[["Friends", friends.length], ["Requests", requests.length], ["Discover", discoverUsers.length]].map(
-              ([label, val], i, arr) => (
-                <div key={label as string} style={{
-                  flex: 1, padding: "12px 4px", textAlign: "center",
-                  borderRight: i < arr.length - 1 ? "1px solid rgba(255,255,255,0.06)" : "none",
-                }}>
-                  <strong style={{ display: "block", fontSize: "1.15rem", color: "#fff", fontWeight: 800 }}>{val}</strong>
-                  <span style={{ fontSize: "0.66rem", color: "rgba(255,255,255,0.33)" }}>{label}</span>
-                </div>
-              )
-            )}
-          </div>
-          <button onClick={onLogout} style={{
-            background: "rgba(255,70,70,0.1)", border: "1px solid rgba(255,70,70,0.22)",
-            color: "#ff6b6b", borderRadius: 11, padding: "9px 24px",
-            fontSize: "0.86rem", fontWeight: 600, cursor: "pointer",
-          }}>Logout</button>
-        </div>
-
-        {requests.length > 0 && (
-          <div style={{ ...S.panel, marginBottom: 12 }}>
-            <div style={S.panelHead}>
-              <span style={S.panelTitle}>Friend Requests</span>
-              <span style={S.panelCount}>{requests.length}</span>
+              <div style={styles.statCard}>
+                <strong>{vibeCount}</strong>
+                <span>VIBES</span>
+              </div>
+              <div style={styles.statCard}>
+                <strong>Elite</strong>
+                <span style={{ color: "#a678ff" }}>STATUS</span>
+              </div>
             </div>
-            {requests.map((req) => (
-              <div key={req.id} style={S.panelItem}>
-                <Avatar name={req.sender.fullName} size={36} gradient="135deg, #4ee1b7, #1b8a6b" />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: "0.84rem", fontWeight: 700, color: "#fff" }}>{req.sender.fullName}</div>
-                  <div style={{ fontSize: "0.72rem", color: "rgba(255,255,255,0.38)" }}>
-                    {(req.sender as any).course && (req.sender as any).year
-                      ? `${(req.sender as any).course} · ${(req.sender as any).year} Year`
-                      : "Campus student"}
+          </section>
+
+          <section style={styles.sectionBlock}>
+            <div style={styles.sectionLabel}>INFORMATION</div>
+            <div style={styles.infoCard}>
+              <div style={styles.infoTitleRow}>
+                <GraduationCap size={16} color="#a678ff" />
+                <div>
+                  <div style={styles.infoTitle}>{user.course ?? "Campus Member"}</div>
+                  <div style={styles.infoMeta}>{user.year ?? "Verified Student"}</div>
+                </div>
+              </div>
+              <p style={styles.infoText}>
+                {user.bio ??
+                  user.interests ??
+                  "Exploring authentic conversations, creative campus energy, and people worth remembering."}
+              </p>
+            </div>
+          </section>
+
+          {requests.length > 0 && (
+            <section style={styles.sectionBlock}>
+              <div style={styles.sectionLabel}>FRIEND REQUESTS</div>
+              <div style={{ display: "grid", gap: 12 }}>
+                {requests.map((request) => (
+                  <MemberCard
+                    key={request.id}
+                    person={request.sender}
+                    action={
+                      <button
+                        onClick={() => void acceptRequest(request.id)}
+                        style={styles.acceptButton}
+                      >
+                        Accept
+                      </button>
+                    }
+                  />
+                ))}
+              </div>
+            </section>
+          )}
+
+          {notifications.length > 0 && (
+            <section style={styles.sectionBlock}>
+              <div style={styles.sectionLabel}>NOTIFICATIONS</div>
+              <div style={{ display: "grid", gap: 10 }}>
+                {notifications.slice(0, 4).map((notice) => (
+                  <div key={notice.id} style={styles.infoMiniCard}>
+                    <Info size={15} color="#a678ff" />
+                    <span>{notice.message}</span>
                   </div>
-                </div>
-                <button onClick={() => void acceptRequest(req.id)} style={{
-                  background: "linear-gradient(135deg, #4ee1b7, #1b8a6b)",
-                  border: "none", borderRadius: 9, padding: "7px 14px",
-                  fontSize: "0.76rem", fontWeight: 700, color: "#fff", cursor: "pointer", flexShrink: 0,
-                }}>Accept</button>
+                ))}
               </div>
-            ))}
-          </div>
-        )}
+            </section>
+          )}
 
-        {notifications.length > 0 && (
-          <div style={{ ...S.panel, marginBottom: 12 }}>
-            <div style={S.panelHead}>
-              <span style={S.panelTitle}>Notifications</span>
-              <span style={S.panelCount}>{notifications.length}</span>
-            </div>
-            {notifications.map((n) => (
-              <div key={n.id} style={S.panelItem}>
-                <div style={{
-                  width: 34, height: 34, borderRadius: 9,
-                  background: "rgba(255,184,74,0.1)",
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  color: "#ffb84a", flexShrink: 0,
-                }}>{n.type === "friend_accept" ? "✓" : n.type === "friend_request" ? "+" : "i"}</div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: "0.82rem", fontWeight: 600, color: "#fff", marginBottom: 2 }}>
-                    {n.type === "friend_accept" ? "Friend accepted" : n.type === "friend_request" ? "New request" : "Update"}
-                  </div>
-                  <div style={{ fontSize: "0.72rem", color: "rgba(255,255,255,0.38)" }}>{n.message}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        <div style={S.panel}>
-          <div style={S.panelHead}>
-            <span style={S.panelTitle}>Blocked Users</span>
-            <span style={S.panelCount}>{blockedUsers.length}</span>
-          </div>
-          {blockedUsers.length === 0
-            ? <div style={{ padding: 18, textAlign: "center", color: "rgba(255,255,255,0.24)", fontSize: "0.8rem" }}>
-                <Lock size={16} style={{ marginBottom: 6, display: "block", margin: "0 auto 8px" }} />
-                People you block appear here.
-              </div>
-            : blockedUsers.map((e) => (
-                <div key={e.id} style={S.panelItem}>
-                  <div style={{
-                    width: 34, height: 34, borderRadius: 9,
-                    background: "rgba(255,70,70,0.1)",
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                    color: "#ff6b6b", flexShrink: 0,
-                  }}><ShieldBan size={14} /></div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: "0.83rem", fontWeight: 700, color: "#fff" }}>{e.user.fullName}</div>
-                    <div style={{ fontSize: "0.72rem", color: "rgba(255,255,255,0.35)" }}>
-                      {e.reason ? `Reason: ${e.reason}` : "Blocked user"}
+          <section style={styles.sectionBlock}>
+            <div style={styles.sectionLabel}>SAFETY</div>
+            <div style={{ display: "grid", gap: 10 }}>
+              {blockedUsers.length ? (
+                blockedUsers.map((entry) => (
+                  <div key={entry.id} style={styles.blockedCard}>
+                    <div style={{ flex: 1 }}>
+                      <div style={styles.infoTitle}>{entry.user.fullName}</div>
+                      <div style={styles.infoMeta}>{entry.reason ?? "Blocked user"}</div>
                     </div>
+                    <button
+                      onClick={() => void unblockUser(entry.user.id)}
+                      style={styles.unblockButton}
+                    >
+                      <ShieldBan size={14} />
+                      Unblock
+                    </button>
                   </div>
-                  <button onClick={() => void unblockUser(e.user.id)} style={{
-                    background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.09)",
-                    borderRadius: 9, padding: "6px 11px",
-                    fontSize: "0.74rem", fontWeight: 600, color: "rgba(255,255,255,0.48)",
-                    cursor: "pointer", display: "flex", alignItems: "center", gap: 5, flexShrink: 0,
-                  }}><ShieldBan size={12} /> Unblock</button>
+                ))
+              ) : (
+                <div style={styles.infoMiniCard}>
+                  <ShieldBan size={15} color="rgba(255,255,255,0.5)" />
+                  <span>No blocked members yet.</span>
                 </div>
-              ))
-          }
+              )}
+            </div>
+          </section>
+
+          <button onClick={onLogout} style={styles.logoutButton}>
+            Logout
+          </button>
         </div>
-        <div style={{ height: 20 }} />
-      </div>
-    </div>
-  );
+      </Screen>
+    );
+  }
 
-  // ─── Bottom Nav Config ────────────────────────────────────────────────────
-  /*
-   * FIX 1: badge uses `usersWithUnread` — the count of distinct users who have unread
-   * messages — instead of the raw sum of all unread messages.
-   * Example: Raj sent 3, Akshat sent 1 → badge = 2 (two users), not 4 (four messages).
-   */
-  const tabs: { id: AppTab; label: string; icon: React.ReactNode; badge?: number }[] = [
-    { id: "home", label: "Home", icon: <Home size={21} /> },
-    { id: "discover", label: "Discover", icon: <Search size={21} /> },
-    { id: "messages", label: "Messages", icon: <MessageCircle size={21} />, badge: usersWithUnread },
-    { id: "profile", label: "Profile", icon: <UserCircle2 size={21} /> },
-  ];
-  const navActive = (id: AppTab) =>
-    id === "messages" ? (activeTab === "messages" || activeTab === "chat") : activeTab === id;
+  const content =
+    activeTab === "home"
+      ? renderHome()
+      : activeTab === "discover"
+        ? renderDiscover()
+        : activeTab === "messages"
+          ? renderMessages()
+          : activeTab === "chat"
+            ? renderChat()
+            : renderProfile();
 
-  // ─── MAIN RENDER ──────────────────────────────────────────────────────────
   return (
     <>
       <style>{`
-        @keyframes tdot {
-          0%,60%,100%{transform:translateY(0)}
-          30%{transform:translateY(-5px)}
+        @keyframes campusTyping {
+          0%, 80%, 100% { transform: scale(0.8); opacity: 0.45; }
+          40% { transform: scale(1); opacity: 1; }
         }
-        @keyframes blink {0%,100%{opacity:1}50%{opacity:0.2}}
-        @keyframes pulse {
-          0%{box-shadow:0 0 0 0 rgba(78,225,183,0.4)}
-          70%{box-shadow:0 0 0 18px rgba(78,225,183,0)}
-          100%{box-shadow:0 0 0 0 rgba(78,225,183,0)}
-        }
-        *{box-sizing:border-box}
-        ::-webkit-scrollbar{width:0;background:transparent}
-        html,body{height:100%;overflow:hidden;position:fixed;width:100%;}
-        input,textarea,select{font-size:16px !important;}
+        * { box-sizing: border-box; }
+        html, body, #root { min-height: 100%; }
+        body.dashboard-ui-lock { overflow: hidden; }
+        .dashboard-scroll::-webkit-scrollbar { width: 0; height: 0; }
       `}</style>
 
-      <div style={{
-        position: "fixed", inset: 0,
-        display: "flex", flexDirection: "column",
-        background: "#0a0f1c", color: "#e8eaf0",
-        fontFamily: "'Segoe UI', system-ui, sans-serif",
-        overflow: "hidden", maxWidth: "100%",
-      }}>
-        <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column", minHeight: 0 }}>
-          {activeTab === "home"     && <HomeScreen />}
-          {activeTab === "discover" && <DiscoverScreen />}
-          {activeTab === "messages" && <MessagesScreen />}
-          {activeTab === "chat"     && <ChatScreen />}
-          {activeTab === "profile"  && <ProfileScreen />}
-        </div>
+      <div
+        style={{
+          minHeight: "100dvh",
+          display: "grid",
+          placeItems: "center",
+          padding: 12,
+          background:
+            "radial-gradient(circle at top, rgba(166,120,255,0.12), transparent 24%), radial-gradient(circle at bottom, rgba(255,255,255,0.05), transparent 28%), #050507",
+        }}
+      >
+        <div style={phoneFrameStyle}>
+          <div
+            style={{
+              position: "absolute",
+              top: 10,
+              left: "50%",
+              transform: "translateX(-50%)",
+              width: 138,
+              height: 28,
+              borderRadius: 999,
+              background: "#09090b",
+              border: "1px solid rgba(255,255,255,0.03)",
+              zIndex: 4,
+            }}
+          />
 
-        {activeTab !== "chat" && (
-          <nav style={{
-            display: "flex",
-            height: "calc(60px + env(safe-area-inset-bottom, 0px))",
-            paddingBottom: "env(safe-area-inset-bottom, 0px)",
-            background: "rgba(8,12,20,0.98)",
-            borderTop: "1px solid rgba(255,255,255,0.08)",
-            backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
-            flexShrink: 0, width: "100%",
-          }}>
-            {tabs.map((tab) => (
-              <button key={tab.id} onClick={() => {
-                if (tab.id === "messages") setSelectedFriend(null);
-                setActiveTab(tab.id);
-              }} style={{
-                flex: 1, display: "flex", flexDirection: "column",
-                alignItems: "center", justifyContent: "center", gap: 3,
-                background: "none", border: "none", cursor: "pointer",
-                color: navActive(tab.id) ? "#ffb84a" : "rgba(255,255,255,0.32)",
-                fontSize: "0.63rem", fontWeight: 600,
-                position: "relative", transition: "color 0.15s",
-                padding: "8px 0",
-              }}>
-                {tab.icon}
-                <span>{tab.label}</span>
-                {/* FIX 1: badge = number of users with unread (not total message count) */}
-                {tab.badge && tab.badge > 0 ? (
-                  <span style={{
-                    position: "absolute", top: 6,
-                    right: "calc(50% - 18px)",
-                    background: "#ff4444", color: "#fff",
-                    fontSize: "0.57rem", fontWeight: 800,
-                    padding: "1px 5px", borderRadius: 100,
-                    minWidth: 16, textAlign: "center",
-                    border: "2px solid #08121e",
-                  }}>{tab.badge > 99 ? "99+" : tab.badge}</span>
-                ) : null}
-              </button>
-            ))}
-          </nav>
-        )}
+          <div style={styles.statusBar}>
+            <span>23:59</span>
+            <span>⌁ ▰</span>
+          </div>
+
+          <div style={{ flex: 1, minHeight: 0 }}>{content}</div>
+
+          {activeTab !== "chat" && (
+            <nav style={styles.bottomNav}>
+              {tabs.map((tab) => {
+                const active =
+                  tab.id === "messages" ? activeTab === "messages" : activeTab === tab.id;
+
+                return (
+                  <button
+                    key={tab.id}
+                    onClick={() => {
+                      if (tab.id === "messages") setSelectedFriend(null);
+                      setActiveTab(tab.id);
+                    }}
+                    style={{
+                      ...styles.navButton,
+                      color: active ? "#b187ff" : "rgba(255,255,255,0.34)",
+                    }}
+                  >
+                    <span
+                      style={{
+                        ...styles.navIconWrap,
+                        ...(active ? styles.navIconWrapActive : {}),
+                      }}
+                    >
+                      {tab.icon}
+                    </span>
+                    <span>{tab.label}</span>
+                    {tab.badge && tab.badge > 0 ? (
+                      <span style={styles.navBadge}>{tab.badge > 99 ? "99+" : tab.badge}</span>
+                    ) : null}
+                  </button>
+                );
+              })}
+            </nav>
+          )}
+
+          <div style={styles.homeIndicator} />
+        </div>
       </div>
 
-      {/* Outgoing Call Overlay */}
       {outgoingCall && !activeCall && (
-        <div style={S.callOverlay}>
-          <div style={{ ...S.callAvatar, animation: "pulse 1.5s infinite" }}>
-            {initials(outgoingCall.receiverName)}
-          </div>
-          <h3 style={{ margin: 0, color: "#fff", fontSize: "1.45rem" }}>{outgoingCall.receiverName}</h3>
-          <p style={{ color: "rgba(255,255,255,0.42)", marginTop: 6, fontSize: "0.88rem" }}>Calling…</p>
-          <button onClick={() => setOutgoingCall(null)} style={S.callEndBtn}>
-            <Phone size={17} style={{ transform: "rotate(135deg)" }} /> Cancel
+        <div style={styles.callOverlay}>
+          <div style={styles.callCircle}>{getInitials(outgoingCall.receiverName)}</div>
+          <div style={styles.callTitle}>{outgoingCall.receiverName}</div>
+          <div style={styles.callText}>Connecting now...</div>
+          <button onClick={() => setOutgoingCall(null)} style={styles.callDanger}>
+            <Phone size={15} style={{ transform: "rotate(135deg)" }} />
+            Cancel
           </button>
         </div>
       )}
 
-      {/* Incoming Call Overlay */}
       {incomingCall && !activeCall && (
-        <div style={S.callOverlay}>
-          <div style={S.callAvatar}>{initials(incomingCall.callerName)}</div>
-          <h3 style={{ margin: 0, color: "#fff", fontSize: "1.45rem" }}>{incomingCall.callerName}</h3>
-          <p style={{ color: "rgba(255,255,255,0.42)", marginTop: 6, fontSize: "0.88rem" }}>
-            Incoming {incomingCall.isVideo ? "Video" : "Audio"} Call…
-          </p>
-          <div style={{ display: "flex", gap: 20, marginTop: 32 }}>
-            <button onClick={declineCall} style={{
-              background: "#ff4444", borderRadius: "50%", border: "none", color: "#fff",
-              cursor: "pointer", width: 58, height: 58, display: "flex", alignItems: "center", justifyContent: "center",
-            }}>
-              <Phone size={22} style={{ transform: "rotate(135deg)" }} />
+        <div style={styles.callOverlay}>
+          <div style={styles.callCircle}>{getInitials(incomingCall.callerName)}</div>
+          <div style={styles.callTitle}>{incomingCall.callerName}</div>
+          <div style={styles.callText}>
+            Incoming {incomingCall.isVideo ? "video" : "voice"} call...
+          </div>
+          <div style={{ display: "flex", gap: 14 }}>
+            <button onClick={declineCall} style={styles.callDangerRound}>
+              <Phone size={18} style={{ transform: "rotate(135deg)" }} />
             </button>
-            <button onClick={acceptCall} style={{
-              background: "#4ee1b7", borderRadius: "50%", border: "none", color: "#000",
-              cursor: "pointer", width: 58, height: 58, display: "flex", alignItems: "center", justifyContent: "center",
-            }}>
-              {incomingCall.isVideo ? <Camera size={22} /> : <Phone size={22} />}
+            <button onClick={acceptCall} style={styles.callAcceptRound}>
+              {incomingCall.isVideo ? <Camera size={18} /> : <Phone size={18} />}
             </button>
           </div>
         </div>
@@ -1170,110 +1305,711 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
   );
 }
 
-// ─── Style constants ──────────────────────────────────────────────────────────
-const S = {
-  screen: {
-    display: "flex" as const, flexDirection: "column" as const,
-    height: "100%", overflow: "hidden", width: "100%", maxWidth: "100%",
+const styles: Record<string, CSSProperties> = {
+  statusBar: {
+    height: 34,
+    padding: "12px 18px 0",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    color: "rgba(255,255,255,0.78)",
+    fontSize: "0.9rem",
+    fontWeight: 600,
+    letterSpacing: "0.01em",
+    flexShrink: 0,
   },
   scrollArea: {
-    flex: 1, overflowY: "auto" as const, overflowX: "hidden" as const,
-    padding: 16, minHeight: 0,
+    flex: 1,
+    minHeight: 0,
+    overflowY: "auto",
+    padding: "18px 18px 24px",
+    display: "flex",
+    flexDirection: "column",
+    gap: 18,
+  },
+  roundIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    display: "grid",
+    placeItems: "center",
+    background: "rgba(255,255,255,0.04)",
+    border: "1px solid rgba(255,255,255,0.08)",
+    color: "#f4f4f6",
+  },
+  plainIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    display: "grid",
+    placeItems: "center",
+    background: "transparent",
+    color: "rgba(255,255,255,0.78)",
+    border: "none",
+    flexShrink: 0,
+  },
+  avatarChip: {
+    width: 34,
+    height: 34,
+    borderRadius: "50%",
+    display: "grid",
+    placeItems: "center",
+    background: "rgba(43,37,61,0.88)",
+    border: "1px solid rgba(166,120,255,0.18)",
+    color: "#d8cdff",
+    fontWeight: 700,
+    fontSize: "0.8rem",
+    flexShrink: 0,
+  },
+  heroCard: {
+    borderRadius: 28,
+    padding: "24px 22px 22px",
+    background:
+      "radial-gradient(circle at top right, rgba(166,120,255,0.18), transparent 36%), linear-gradient(135deg, rgba(28,28,34,0.96) 0%, rgba(22,22,27,0.98) 100%)",
+    border: "1px solid rgba(255,255,255,0.05)",
+    boxShadow: "0 26px 50px rgba(0,0,0,0.32)",
   },
   heroBadge: {
-    display: "inline-flex", alignItems: "center", gap: 7,
-    background: "rgba(255,184,74,0.1)", border: "1px solid rgba(255,184,74,0.28)",
-    borderRadius: 100, padding: "5px 13px",
-    fontSize: "0.64rem", fontWeight: 700, letterSpacing: "0.1em", color: "#ffb84a",
+    color: "#a678ff",
+    fontSize: "0.66rem",
+    letterSpacing: "0.16em",
+    fontWeight: 800,
     marginBottom: 16,
   },
-  heroDot: {
-    display: "inline-block", width: 7, height: 7, borderRadius: "50%",
-    background: "#ffb84a", animation: "blink 1.4s infinite",
-  },
   heroTitle: {
-    fontSize: "1.5rem", fontWeight: 800, lineHeight: 1.22,
-    color: "#fff", margin: "0", letterSpacing: "-0.02em",
+    margin: 0,
+    color: "#fafafc",
+    fontWeight: 600,
+    fontSize: "2.08rem",
+    lineHeight: 1.05,
+    letterSpacing: "-0.05em",
   },
-  heroCta: {
-    display: "inline-flex", alignItems: "center", gap: 8,
-    background: "linear-gradient(135deg, #ffb84a, #ff8c42)",
-    color: "#1a0e00", fontWeight: 700, fontSize: "0.88rem",
-    padding: "12px 22px", borderRadius: 100, border: "none", cursor: "pointer",
-    boxShadow: "0 4px 18px rgba(255,140,66,0.35)",
+  primaryButton: {
+    marginTop: 24,
+    width: "100%",
+    height: 54,
+    borderRadius: 18,
+    border: "none",
+    background: "#f4f1ee",
+    color: "#17151c",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+    fontWeight: 800,
+    letterSpacing: "0.02em",
   },
-  section: { marginBottom: 22 },
-  sectionHead: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 },
-  sectionTitle: { fontSize: "0.92rem", fontWeight: 700, color: "#fff" },
-  sectionLink: {
-    fontSize: "0.78rem", fontWeight: 600, color: "#ffb84a",
-    background: "none", border: "none", cursor: "pointer", padding: 0,
+  sectionBlock: {
+    display: "grid",
+    gap: 12,
   },
-  emptyCard: {
-    background: "rgba(255,255,255,0.03)", border: "1px dashed rgba(255,255,255,0.1)",
-    borderRadius: 13, padding: 18, color: "rgba(255,255,255,0.3)",
-    fontSize: "0.82rem", textAlign: "center" as const,
+  sectionHeader: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
   },
-  iconBtn: {
-    width: 34, height: 34, borderRadius: 9,
-    background: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.1)",
-    display: "flex", alignItems: "center", justifyContent: "center",
-    color: "rgba(255,255,255,0.7)", cursor: "pointer",
+  sectionLabel: {
+    color: "rgba(255,255,255,0.28)",
+    fontSize: "0.72rem",
+    fontWeight: 800,
+    letterSpacing: "0.12em",
   },
-  topAvatar: {
-    width: 32, height: 32, borderRadius: "50%",
-    background: "linear-gradient(135deg, #ffb84a, #ff8c42)",
-    display: "flex", alignItems: "center", justifyContent: "center",
-    fontSize: "0.82rem", fontWeight: 800, color: "#1a0e00", cursor: "pointer",
-    border: "2px solid rgba(255,184,74,0.3)",
+  linkButton: {
+    background: "none",
+    border: "none",
+    color: "#b187ff",
+    fontSize: "0.82rem",
+    fontWeight: 700,
+    padding: 0,
   },
-  filterInput: {
-    width: "100%", padding: "9px 13px", borderRadius: 11,
-    border: "1px solid rgba(255,255,255,0.1)", background: "rgba(255,255,255,0.05)",
-    color: "#fff", outline: "none", boxSizing: "border-box" as const,
+  onlineLabel: {
+    color: "#23d968",
+    fontSize: "0.74rem",
+    fontWeight: 800,
+    letterSpacing: "0.02em",
   },
-  compIcon: {
-    width: 36, height: 36, borderRadius: 10, flexShrink: 0,
-    background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.09)",
-    display: "flex", alignItems: "center", justifyContent: "center",
-    color: "rgba(255,255,255,0.55)", cursor: "pointer",
+  memberAction: {
+    width: 38,
+    height: 38,
+    borderRadius: "50%",
+    display: "grid",
+    placeItems: "center",
+    background: "rgba(77,55,132,0.35)",
+    border: "1px solid rgba(166,120,255,0.15)",
+    color: "#cbb7ff",
+    flexShrink: 0,
   },
-  compInput: {
-    flex: 1, background: "rgba(255,255,255,0.07)",
-    border: "1px solid rgba(255,255,255,0.1)", borderRadius: 12,
-    padding: "9px 13px", color: "#fff", outline: "none", minWidth: 0,
+  memberActionSecondary: {
+    width: 38,
+    height: 38,
+    borderRadius: "50%",
+    display: "grid",
+    placeItems: "center",
+    background: "rgba(43,37,61,0.88)",
+    border: "1px solid rgba(166,120,255,0.18)",
+    color: "#cbb7ff",
+    flexShrink: 0,
   },
-  panel: {
+  emptyPanel: {
+    borderRadius: 22,
+    border: "1px solid rgba(255,255,255,0.05)",
     background: "rgba(255,255,255,0.03)",
-    border: "1px solid rgba(255,255,255,0.07)", borderRadius: 16, overflow: "hidden",
+    padding: "18px 16px",
+    color: "rgba(255,255,255,0.48)",
+    fontSize: "0.9rem",
+    lineHeight: 1.55,
   },
-  panelHead: {
-    padding: "13px 16px 11px", borderBottom: "1px solid rgba(255,255,255,0.05)",
-    display: "flex", alignItems: "center", justifyContent: "space-between",
+  photoCard: {
+    position: "relative",
+    minHeight: 170,
+    borderRadius: 22,
+    overflow: "hidden",
+    background: "rgba(255,255,255,0.04)",
+    border: "1px solid rgba(255,255,255,0.05)",
   },
-  panelTitle: { fontSize: "0.88rem", fontWeight: 700, color: "#fff" },
-  panelCount: { fontSize: "0.73rem", color: "rgba(255,255,255,0.3)" },
-  panelItem: {
-    display: "flex", alignItems: "center", gap: 12, padding: "12px 16px",
+  photoImage: {
+    width: "100%",
+    height: 170,
+    objectFit: "cover",
+    display: "block",
+  },
+  photoMetaLeft: {
+    position: "absolute",
+    left: 12,
+    bottom: 12,
+    padding: "6px 10px",
+    borderRadius: 999,
+    background: "rgba(17,17,20,0.78)",
+    color: "#ececf1",
+    fontSize: "0.78rem",
+    fontWeight: 700,
+    backdropFilter: "blur(10px)",
+  },
+  photoMetaRight: {
+    position: "absolute",
+    right: 12,
+    bottom: 12,
+    padding: "6px 10px",
+    borderRadius: 999,
+    background: "rgba(17,17,20,0.78)",
+    color: "#ececf1",
+    fontSize: "0.78rem",
+    fontWeight: 700,
+    backdropFilter: "blur(10px)",
+  },
+  searchWrap: {
+    position: "relative",
+    marginBottom: 8,
+  },
+  searchIcon: {
+    position: "absolute",
+    left: 14,
+    top: "50%",
+    transform: "translateY(-50%)",
+    color: "rgba(255,255,255,0.28)",
+    pointerEvents: "none",
+  },
+  searchInput: {
+    width: "100%",
+    height: 52,
+    borderRadius: 16,
+    border: "1px solid rgba(255,255,255,0.06)",
+    background: "rgba(255,255,255,0.03)",
+    padding: "0 16px 0 42px",
+    color: "#f4f4f7",
+    outline: "none",
+    fontSize: "0.95rem",
+  },
+  filterRow: {
+    display: "flex",
+    gap: 10,
+    overflowX: "auto",
+    paddingBottom: 6,
+    marginBottom: 8,
+  },
+  filterChip: {
+    height: 34,
+    borderRadius: 999,
+    padding: "0 14px",
+    border: "1px solid rgba(255,255,255,0.05)",
+    background: "rgba(255,255,255,0.04)",
+    color: "rgba(255,255,255,0.72)",
+    whiteSpace: "nowrap",
+    fontSize: "0.8rem",
+    fontWeight: 700,
+  },
+  filterChipActive: {
+    background: "linear-gradient(135deg, #b187ff 0%, #9d74ff 100%)",
+    color: "#19131f",
+    border: "none",
+    boxShadow: "0 14px 28px rgba(166,120,255,0.22)",
+  },
+  noticeCard: {
+    display: "flex",
+    alignItems: "center",
+    gap: 12,
+    padding: 14,
+    borderRadius: 20,
+    background: "rgba(166,120,255,0.08)",
+    border: "1px solid rgba(166,120,255,0.12)",
+    marginBottom: 14,
+  },
+  noticeIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: "50%",
+    display: "grid",
+    placeItems: "center",
+    background: "rgba(166,120,255,0.18)",
+    color: "#cbb7ff",
+  },
+  noticeTitle: {
+    color: "#f5f4f8",
+    fontWeight: 700,
+    fontSize: "0.9rem",
+    marginBottom: 2,
+  },
+  noticeText: {
+    color: "rgba(255,255,255,0.45)",
+    fontSize: "0.76rem",
+  },
+  threadCard: {
+    width: "100%",
+    display: "flex",
+    alignItems: "center",
+    gap: 14,
+    padding: "14px 16px",
+    borderRadius: 20,
+    background: "rgba(255,255,255,0.03)",
+    border: "1px solid rgba(255,255,255,0.05)",
+    color: "inherit",
+  },
+  threadHead: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+    marginBottom: 4,
+    color: "#f5f5f7",
+    fontSize: "0.95rem",
+  },
+  threadText: {
+    color: "rgba(255,255,255,0.4)",
+    fontSize: "0.8rem",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+  unreadBadge: {
+    minWidth: 24,
+    height: 24,
+    padding: "0 7px",
+    borderRadius: 999,
+    display: "grid",
+    placeItems: "center",
+    background: "#b187ff",
+    color: "#17131f",
+    fontWeight: 800,
+    fontSize: "0.72rem",
+    flexShrink: 0,
+  },
+  chatHeader: {
+    padding: "18px 16px 14px",
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
     borderBottom: "1px solid rgba(255,255,255,0.04)",
+    flexShrink: 0,
+  },
+  chatName: {
+    color: "#f7f7fa",
+    fontSize: "0.94rem",
+    fontWeight: 700,
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+  },
+  chatStatus: {
+    color: "#23d968",
+    fontSize: "0.72rem",
+    fontWeight: 700,
+    marginTop: 2,
+  },
+  chatMessages: {
+    flex: 1,
+    minHeight: 0,
+    overflowY: "auto",
+    padding: "18px 16px 10px",
+    background:
+      "radial-gradient(circle at top, rgba(166,120,255,0.06), transparent 24%), #111114",
+  },
+  emptyChatState: {
+    minHeight: "100%",
+    display: "grid",
+    placeItems: "center",
+    textAlign: "center",
+    color: "rgba(255,255,255,0.38)",
+    fontSize: "0.92rem",
+    padding: "0 24px",
+  },
+  typingBubble: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 5,
+    padding: "12px 14px",
+    borderRadius: "18px 18px 18px 8px",
+    background: "rgba(255,255,255,0.06)",
+  },
+  typingDot: {
+    width: 7,
+    height: 7,
+    borderRadius: "50%",
+    background: "rgba(255,255,255,0.78)",
+    animation: "campusTyping 1s infinite",
+  },
+  previewRow: {
+    padding: "10px 16px 0",
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    flexShrink: 0,
+  },
+  previewImage: {
+    width: 60,
+    height: 60,
+    borderRadius: 16,
+    objectFit: "cover",
+    border: "1px solid rgba(255,255,255,0.07)",
+  },
+  previewClose: {
+    width: 28,
+    height: 28,
+    borderRadius: "50%",
+    display: "grid",
+    placeItems: "center",
+    background: "rgba(255,255,255,0.08)",
+    color: "#fff",
+    border: "none",
+  },
+  chatComposer: {
+    padding: "12px 16px 20px",
+    display: "grid",
+    gridTemplateColumns: "42px minmax(0, 1fr) 42px",
+    gap: 10,
+    alignItems: "center",
+    flexShrink: 0,
+    background: "#111114",
+  },
+  plusButton: {
+    width: 42,
+    height: 42,
+    borderRadius: "50%",
+    display: "grid",
+    placeItems: "center",
+    background: "rgba(255,255,255,0.06)",
+    color: "rgba(255,255,255,0.75)",
+    border: "none",
+  },
+  chatInput: {
+    width: "100%",
+    minWidth: 0,
+    height: 48,
+    borderRadius: 16,
+    border: "1px solid rgba(255,255,255,0.06)",
+    background: "rgba(255,255,255,0.04)",
+    color: "#f4f4f7",
+    padding: "0 16px",
+    outline: "none",
+    fontSize: "16px",
+  },
+  sendButton: {
+    width: 42,
+    height: 42,
+    borderRadius: "50%",
+    display: "grid",
+    placeItems: "center",
+    background: "#f4f1ee",
+    color: "#15131a",
+    border: "none",
+  },
+  profileHero: {
+    display: "grid",
+    justifyItems: "center",
+    gap: 10,
+    paddingTop: 10,
+  },
+  profileHalo: {
+    width: 112,
+    height: 112,
+    borderRadius: "50%",
+    display: "grid",
+    placeItems: "center",
+    background: "radial-gradient(circle, rgba(166,120,255,0.22), rgba(166,120,255,0.04) 70%)",
+    border: "1px solid rgba(255,255,255,0.06)",
+  },
+  profileCenter: {
+    width: 78,
+    height: 78,
+    borderRadius: "50%",
+    display: "grid",
+    placeItems: "center",
+    background: "#232327",
+    color: "#d7cbff",
+    fontSize: "2rem",
+    fontWeight: 800,
+    border: "1px solid rgba(255,255,255,0.06)",
+  },
+  profileName: {
+    color: "#f5f5f8",
+    fontSize: "1.8rem",
+    fontWeight: 800,
+    letterSpacing: "-0.05em",
+    textAlign: "center",
+  },
+  profileHandle: {
+    color: "rgba(255,255,255,0.32)",
+    fontSize: "0.88rem",
+    fontWeight: 700,
+    letterSpacing: "0.04em",
+  },
+  statsGrid: {
+    width: "100%",
+    display: "grid",
+    gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+    gap: 10,
+    marginTop: 10,
+  },
+  statCard: {
+    minHeight: 72,
+    borderRadius: 20,
+    background: "rgba(255,255,255,0.03)",
+    border: "1px solid rgba(255,255,255,0.05)",
+    display: "grid",
+    placeItems: "center",
+    textAlign: "center",
+    padding: 10,
+    color: "#f5f5f8",
+  },
+  infoCard: {
+    borderRadius: 22,
+    border: "1px solid rgba(255,255,255,0.05)",
+    background: "rgba(255,255,255,0.03)",
+    padding: 18,
+  },
+  infoTitleRow: {
+    display: "flex",
+    alignItems: "flex-start",
+    gap: 10,
+    marginBottom: 12,
+  },
+  infoTitle: {
+    color: "#f5f5f8",
+    fontWeight: 700,
+    fontSize: "0.95rem",
+    marginBottom: 2,
+  },
+  infoMeta: {
+    color: "rgba(255,255,255,0.38)",
+    fontSize: "0.8rem",
+  },
+  infoText: {
+    margin: 0,
+    color: "rgba(255,255,255,0.64)",
+    fontSize: "0.94rem",
+    lineHeight: 1.65,
+  },
+  acceptButton: {
+    height: 36,
+    padding: "0 14px",
+    borderRadius: 12,
+    border: "none",
+    background: "linear-gradient(135deg, #b187ff 0%, #9d74ff 100%)",
+    color: "#18121f",
+    fontWeight: 800,
+    flexShrink: 0,
+  },
+  infoMiniCard: {
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    padding: "14px 16px",
+    borderRadius: 18,
+    background: "rgba(255,255,255,0.03)",
+    border: "1px solid rgba(255,255,255,0.05)",
+    color: "rgba(255,255,255,0.64)",
+    fontSize: "0.88rem",
+  },
+  blockedCard: {
+    display: "flex",
+    alignItems: "center",
+    gap: 12,
+    padding: "14px 16px",
+    borderRadius: 18,
+    background: "rgba(255,255,255,0.03)",
+    border: "1px solid rgba(255,255,255,0.05)",
+  },
+  unblockButton: {
+    height: 36,
+    padding: "0 12px",
+    borderRadius: 12,
+    border: "1px solid rgba(255,255,255,0.08)",
+    background: "rgba(255,255,255,0.04)",
+    color: "#f1f1f5",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
+    fontWeight: 700,
+    flexShrink: 0,
+  },
+  logoutButton: {
+    width: "100%",
+    height: 52,
+    borderRadius: 18,
+    border: "1px solid rgba(255,90,90,0.18)",
+    background: "rgba(255,90,90,0.08)",
+    color: "#ff8c8c",
+    fontWeight: 800,
+    marginTop: 8,
+  },
+  bottomNav: {
+    display: "grid",
+    gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+    gap: 8,
+    padding: "10px 14px 12px",
+    borderTop: "1px solid rgba(255,255,255,0.04)",
+    background: "rgba(12,12,15,0.98)",
+    flexShrink: 0,
+  },
+  navButton: {
+    position: "relative",
+    display: "grid",
+    justifyItems: "center",
+    gap: 6,
+    padding: "2px 0 0",
+    background: "transparent",
+    border: "none",
+    fontSize: "0.66rem",
+    fontWeight: 700,
+    letterSpacing: "0.04em",
+    textTransform: "uppercase",
+  },
+  navIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 14,
+    display: "grid",
+    placeItems: "center",
+    border: "1px solid rgba(255,255,255,0.05)",
+    background: "rgba(255,255,255,0.02)",
+  },
+  navIconWrapActive: {
+    background: "rgba(166,120,255,0.12)",
+    border: "1px solid rgba(166,120,255,0.2)",
+    boxShadow: "0 12px 24px rgba(166,120,255,0.14)",
+  },
+  navBadge: {
+    position: "absolute",
+    top: 1,
+    right: "calc(50% - 18px)",
+    minWidth: 16,
+    height: 16,
+    padding: "0 4px",
+    borderRadius: 999,
+    background: "#b187ff",
+    color: "#18121f",
+    fontSize: "0.6rem",
+    fontWeight: 800,
+    display: "grid",
+    placeItems: "center",
+  },
+  homeIndicator: {
+    width: 118,
+    height: 5,
+    borderRadius: 999,
+    background: "rgba(255,255,255,0.74)",
+    alignSelf: "center",
+    marginBottom: 8,
+    flexShrink: 0,
   },
   callOverlay: {
-    position: "fixed" as const, inset: 0, zIndex: 99999,
-    background: "rgba(8,12,20,0.98)", backdropFilter: "blur(20px)",
-    WebkitBackdropFilter: "blur(20px)",
-    display: "flex", flexDirection: "column" as const,
-    alignItems: "center", justifyContent: "center",
+    position: "fixed",
+    inset: 0,
+    background: "rgba(7,7,10,0.9)",
+    backdropFilter: "blur(16px)",
+    display: "grid",
+    placeItems: "center",
+    gap: 14,
+    textAlign: "center",
+    zIndex: 999,
   },
-  callAvatar: {
-    width: 96, height: 96, borderRadius: "50%",
-    background: "linear-gradient(135deg, #4ee1b7, #1b8a6b)",
-    display: "flex", alignItems: "center", justifyContent: "center",
-    fontSize: "2.4rem", fontWeight: 800, color: "#fff", marginBottom: 20,
+  callCircle: {
+    width: 88,
+    height: 88,
+    borderRadius: "50%",
+    display: "grid",
+    placeItems: "center",
+    background: "linear-gradient(135deg, #b187ff 0%, #7041ff 100%)",
+    color: "#141019",
+    fontSize: "1.8rem",
+    fontWeight: 800,
   },
-  callEndBtn: {
-    marginTop: 32, background: "rgba(255,70,70,0.88)",
-    padding: "12px 28px", borderRadius: 100, border: "none",
-    color: "#fff", cursor: "pointer", fontSize: "0.9rem", fontWeight: 600,
-    display: "flex", alignItems: "center", gap: 8,
+  callTitle: {
+    color: "#f7f7fb",
+    fontSize: "1.5rem",
+    fontWeight: 800,
+    letterSpacing: "-0.04em",
+  },
+  callText: {
+    color: "rgba(255,255,255,0.54)",
+    fontSize: "0.92rem",
+  },
+  callDanger: {
+    height: 46,
+    padding: "0 18px",
+    borderRadius: 999,
+    border: "none",
+    background: "rgba(255,90,90,0.95)",
+    color: "#fff",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 8,
+    fontWeight: 800,
+  },
+  callDangerRound: {
+    width: 58,
+    height: 58,
+    borderRadius: "50%",
+    border: "none",
+    display: "grid",
+    placeItems: "center",
+    background: "#ff5a5a",
+    color: "#fff",
+  },
+  callAcceptRound: {
+    width: 58,
+    height: 58,
+    borderRadius: "50%",
+    border: "none",
+    display: "grid",
+    placeItems: "center",
+    background: "#23d968",
+    color: "#101512",
+  },
+  endCallButton: {
+    position: "absolute",
+    right: 16,
+    bottom: 16,
+    height: 42,
+    padding: "0 16px",
+    borderRadius: 999,
+    border: "none",
+    background: "rgba(255,90,90,0.95)",
+    color: "#fff",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 8,
+    fontWeight: 800,
+    zIndex: 3,
   },
 };
