@@ -697,9 +697,17 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedFriend?.id, conversationIsOpen]);
 
+  const isNearBottom = useCallback(() => {
+    const el = bottomRef.current?.parentElement;
+    if (!el) return false;
+    return el.scrollHeight - el.scrollTop - el.clientHeight < 100;
+  }, []);
+
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [messages, partnerTyping]);
+    if (isNearBottom()) {
+      bottomRef.current?.scrollIntoView({ behavior: "auto" });
+    }
+  }, [messages]); // ← partnerTyping intentionally removed: typing indicator changes must not trigger scroll
 
   // FIX #1: Focus only when switching to a new friend, not on every render
   useEffect(() => {
