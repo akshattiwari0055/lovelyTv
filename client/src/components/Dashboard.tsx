@@ -101,11 +101,12 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
   useEffect(() => {
     const ctx = gsap.context(() => {
       gsap.from(".dashboard-reveal", {
-        y: 20,
+        y: 16,
         opacity: 0,
-        duration: 0.55,
-        stagger: 0.07,
-        ease: "power3.out",
+        duration: 0.5,
+        stagger: 0.06,
+        ease: "power2.out",
+        clearProps: "all",
       });
     }, shellRef);
     return () => ctx.revert();
@@ -354,8 +355,14 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
           background: linear-gradient(135deg, #0d2137 0%, #0a1628 55%, #111a2e 100%);
           border: 1px solid rgba(255,184,74,0.22);
           border-radius: 20px;
-          padding: 32px 28px 28px;
+          padding: 36px 32px 36px;
           margin-bottom: 24px;
+          min-height: 260px;
+          display: flex;
+          flex-direction: column;
+          justify-content: center;
+          box-sizing: border-box;
+          flex-shrink: 0;
         }
         .hero-glow {
           position: absolute;
@@ -364,6 +371,22 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
           border-radius: 50%;
           background: radial-gradient(circle, rgba(255,184,74,0.14) 0%, transparent 70%);
           pointer-events: none;
+        }
+        .hero-glow-2 {
+          position: absolute;
+          bottom: -100px; left: -60px;
+          width: 280px; height: 280px;
+          border-radius: 50%;
+          background: radial-gradient(circle, rgba(30,100,200,0.1) 0%, transparent 70%);
+          pointer-events: none;
+        }
+        .hero-content {
+          position: relative;
+          z-index: 1;
+          display: flex;
+          flex-direction: column;
+          align-items: flex-start;
+          gap: 0;
         }
         .hero-badge {
           display: inline-flex;
@@ -377,22 +400,25 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
           font-weight: 700;
           letter-spacing: 0.1em;
           color: #ffb84a;
-          margin-bottom: 16px;
+          margin-bottom: 18px;
+          flex-shrink: 0;
         }
         .hero-badge-dot {
           width: 7px; height: 7px;
           border-radius: 50%;
           background: #ffb84a;
+          flex-shrink: 0;
           animation: lpublink 1.4s infinite;
         }
         @keyframes lpublink { 0%,100%{opacity:1} 50%{opacity:0.2} }
         .hero-title {
-          font-size: clamp(1.5rem, 3.5vw, 2.1rem);
+          font-size: clamp(1.6rem, 3.5vw, 2.2rem);
           font-weight: 800;
           line-height: 1.2;
           color: #fff;
-          margin: 0 0 10px;
+          margin: 0 0 12px;
           letter-spacing: -0.02em;
+          flex-shrink: 0;
         }
         .hero-title-accent {
           background: linear-gradient(90deg, #ffb84a, #ff8c42);
@@ -403,7 +429,8 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
         .hero-sub {
           font-size: 0.88rem;
           color: rgba(255,255,255,0.45);
-          margin: 0 0 24px;
+          margin: 0 0 26px;
+          flex-shrink: 0;
         }
         .hero-cta {
           display: inline-flex;
@@ -412,13 +439,15 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
           background: linear-gradient(135deg, #ffb84a, #ff8c42);
           color: #1a0e00;
           font-weight: 700;
-          font-size: 0.92rem;
-          padding: 13px 26px;
+          font-size: 0.95rem;
+          padding: 14px 28px;
           border-radius: 100px;
           border: none;
           cursor: pointer;
           box-shadow: 0 4px 20px rgba(255,140,66,0.38);
           transition: transform 0.18s, box-shadow 0.18s;
+          flex-shrink: 0;
+          white-space: nowrap;
         }
         .hero-cta:hover { transform: translateY(-2px); box-shadow: 0 8px 28px rgba(255,140,66,0.55); }
         .hero-cta:active { transform: translateY(0); }
@@ -521,27 +550,33 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
         .friend-row-arrow { color: rgba(255,255,255,0.22); font-size: 1.2rem; }
 
         @media (max-width: 600px) {
-          .hero-card { padding: 22px 18px 20px; }
+          .hero-card { padding: 22px 18px 24px; min-height: 220px; }
           .suggested-grid { grid-template-columns: repeat(2, 1fr); }
         }
       `}</style>
 
+      {/* Outer scroll wrapper so nothing squishes the hero */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 0, width: "100%", minHeight: 0 }}>
+
       {/* HERO */}
-      <section className="hero-card dashboard-reveal">
+      <section className="hero-card dashboard-reveal" style={{ marginBottom: "28px" }}>
         <div className="hero-glow" />
-        <div className="hero-badge">
-          <span className="hero-badge-dot" />
-          LIVE RANDOM CHAT
+        <div className="hero-glow-2" />
+        <div className="hero-content">
+          <div className="hero-badge">
+            <span className="hero-badge-dot" />
+            LIVE RANDOM CHAT
+          </div>
+          <h1 className="hero-title">
+            Talk to someone new<br />
+            <span className="hero-title-accent">from campus</span> in a tap.
+          </h1>
+          <p className="hero-sub">{status}</p>
+          <button className="hero-cta" onClick={() => navigate("/app/random")}>
+            <Flame size={18} />
+            Start Random Chat
+          </button>
         </div>
-        <h1 className="hero-title">
-          Talk to someone new<br />
-          <span className="hero-title-accent">from campus</span> in a tap.
-        </h1>
-        <p className="hero-sub">{status}</p>
-        <button className="hero-cta" onClick={() => navigate("/app/random")}>
-          <Flame size={18} />
-          Start Random Chat
-        </button>
       </section>
 
       {/* SUGGESTED STUDENTS */}
@@ -596,6 +631,7 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
           </div>
         )}
       </section>
+    </div>
     </>
   );
 
