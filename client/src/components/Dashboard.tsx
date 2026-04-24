@@ -538,14 +538,21 @@ const ChatInput = React.memo(function ChatInput({
           onChange={onChange}
           autoComplete="off" autoCorrect="off" spellCheck={false} enterKeyHint="send"
         />
-        <button type="submit" className="send-btn" disabled={!hasContent} style={{
-          width: 38, height: 38, borderRadius: 10, flexShrink: 0,
-          background: hasContent ? "linear-gradient(135deg, #6d28d9, #8b5cf6)" : C.surfaceAlt,
-          border: hasContent ? "none" : `1px solid ${C.border}`,
-          display: "flex", alignItems: "center", justifyContent: "center",
-          color: hasContent ? "#fff" : C.textDim,
-          cursor: hasContent ? "pointer" : "default", transition: "all 0.2s",
-        }}>
+<button
+  type="button"
+  onClick={onSend}
+  className="send-btn"
+  disabled={!hasContent}
+  style={{
+    width: 38, height: 38, borderRadius: 10, flexShrink: 0,
+    background: hasContent ? "linear-gradient(135deg, #6d28d9, #8b5cf6)" : C.surfaceAlt,
+    border: hasContent ? "none" : `1px solid ${C.border}`,
+    display: "flex", alignItems: "center", justifyContent: "center",
+    color: hasContent ? "#fff" : C.textDim,
+    cursor: hasContent ? "pointer" : "default",
+    transition: "all 0.2s",
+  }}
+>
           <Send size={14} />
         </button>
       </form>
