@@ -1,10 +1,11 @@
 /**
  * Dashboard.tsx — Redesigned Mobile-First Campus Connect UI
  *
- * CHANGES:
- * 1. Hero: replaced image with GSAP-animated headline + description (CDN via useEffect script injection)
- * 2. Unread badges: blank if 0, "+1" "+2" etc. on ChatItem cards (WhatsApp style)
- * 3. Keyboard dismiss: input blurs on every keydown then re-focuses — prevents stuck keyboard after 1 key
+ * FIXES APPLIED:
+ * 1. Badge logic — bottom nav shows count of USERS with unread msgs (not total msg count)
+ * 2. Chat list badges — shows raw message count per user (WhatsApp style: 3, 1, etc.)
+ * 3. Keyboard/focus bug — removed the blur+refocus handleKeyDown hack entirely
+ *    Input stays focused; no more keyboard closing on every keystroke.
  */
 
 import {
@@ -80,7 +81,8 @@ function Avatar({ name, size = 40, gradient = "135deg, #ffb84a, #ff8c42" }:
 }
 
 // ─── ChatItem ─────────────────────────────────────────────────────────────────
-// CHANGE 2: show blank slot if 0 unread, "+N" badge if unread > 0
+// FIX 2: Chat list shows raw unread count per user (WhatsApp style: 3, 1, etc.)
+// No "+N" prefix. Blank when 0 (reserved space kept for layout stability).
 function ChatItem({ friend, unread, lastMsg, active, onClick }:
   { friend: User; unread: number; lastMsg?: string; active?: boolean; onClick: () => void }) {
   return (
@@ -94,7 +96,7 @@ function ChatItem({ friend, unread, lastMsg, active, onClick }:
     }}>
       <div style={{ position: "relative", flexShrink: 0 }}>
         <Avatar name={friend.fullName} gradient="135deg, #4ee1b7, #1b8a6b" />
-        {/* dot indicator on avatar only when unread > 0 */}
+        {/* Green dot on avatar only when there are unread messages */}
         {unread > 0 && (
           <span style={{
             position: "absolute", top: -2, right: -2,
@@ -115,7 +117,11 @@ function ChatItem({ friend, unread, lastMsg, active, onClick }:
           overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
         }}>{lastMsg ?? (friend.interests || "Tap to chat")}</div>
       </div>
-      {/* CHANGE 2: always reserve space; show "+N" only when unread > 0; blank placeholder when 0 */}
+
+      {/*
+        FIX 2: WhatsApp-style badge — shows raw count (3, 12, 99+).
+        Space is always reserved so layout doesn't shift when badge appears/disappears.
+      */}
       <div style={{
         minWidth: 36, height: 22,
         display: "flex", alignItems: "center", justifyContent: "center",
@@ -125,10 +131,11 @@ function ChatItem({ friend, unread, lastMsg, active, onClick }:
           <span style={{
             background: "#25d366", color: "#fff",
             fontSize: "0.65rem", fontWeight: 800,
-            padding: "3px 8px", borderRadius: 100,
-            whiteSpace: "nowrap",
+            padding: "3px 7px", borderRadius: 100,
+            whiteSpace: "nowrap", minWidth: 20, textAlign: "center",
           }}>
-            {unread > 99 ? "+99" : `+${unread}`}
+            {/* Raw count, capped at 99+ — same as WhatsApp / Telegram */}
+            {unread > 99 ? "99+" : unread}
           </span>
         )}
       </div>
@@ -223,12 +230,10 @@ function MessageBubble({ msg, mine }: { msg: Message; mine: boolean }) {
 }
 
 // ─── GSAP Hero ────────────────────────────────────────────────────────────────
-// CHANGE 1: replaces image hero with GSAP animated headline + description
 function GsapHero({ onStartRandom }: { onStartRandom: () => void }) {
   const heroRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    // Inject GSAP from CDN if not already loaded
     const loadGsap = () =>
       new Promise<void>((resolve) => {
         if ((window as any).gsap) { resolve(); return; }
@@ -244,14 +249,12 @@ function GsapHero({ onStartRandom }: { onStartRandom: () => void }) {
 
       const tl = gsap.timeline({ defaults: { ease: "power3.out" } });
 
-      // Stagger in all animated children
       tl.fromTo(".gsap-badge", { opacity: 0, y: -16, scale: 0.85 }, { opacity: 1, y: 0, scale: 1, duration: 0.5 })
         .fromTo(".gsap-line1", { opacity: 0, y: 40, skewY: 4 }, { opacity: 1, y: 0, skewY: 0, duration: 0.65 }, "-=0.2")
         .fromTo(".gsap-line2", { opacity: 0, y: 40, skewY: 4 }, { opacity: 1, y: 0, skewY: 0, duration: 0.65 }, "-=0.45")
         .fromTo(".gsap-desc", { opacity: 0, y: 22 }, { opacity: 1, y: 0, duration: 0.55 }, "-=0.3")
         .fromTo(".gsap-cta", { opacity: 0, scale: 0.88, y: 12 }, { opacity: 1, scale: 1, y: 0, duration: 0.5 }, "-=0.2");
 
-      // Floating particles
       gsap.utils.toArray(".gsap-particle").forEach((el: any, i: number) => {
         gsap.to(el, {
           y: `${-14 - i * 6}px`,
@@ -264,7 +267,6 @@ function GsapHero({ onStartRandom }: { onStartRandom: () => void }) {
         });
       });
 
-      // Glow pulse
       gsap.to(".gsap-glow", {
         opacity: 0.35,
         scale: 1.18,
@@ -284,7 +286,6 @@ function GsapHero({ onStartRandom }: { onStartRandom: () => void }) {
       padding: "32px 22px 28px", marginBottom: 22,
       minHeight: 220,
     }}>
-      {/* Animated glow blob */}
       <div className="gsap-glow" style={{
         position: "absolute", top: -70, right: -70, width: 260, height: 260,
         borderRadius: "50%",
@@ -292,7 +293,6 @@ function GsapHero({ onStartRandom }: { onStartRandom: () => void }) {
         pointerEvents: "none", opacity: 0.2,
       }} />
 
-      {/* Floating particles */}
       {[
         { top: "18%", left: "72%", size: 5, color: "#ffb84a" },
         { top: "62%", left: "82%", size: 3.5, color: "#ff8c42" },
@@ -306,28 +306,20 @@ function GsapHero({ onStartRandom }: { onStartRandom: () => void }) {
         }} />
       ))}
 
-      {/* Content */}
       <div style={{ position: "relative", zIndex: 1 }}>
-        {/* Badge */}
         <div className="gsap-badge" style={{ opacity: 0, ...S.heroBadge }}>
           <span style={S.heroDot} /> LIVE CAMPUS CHAT
         </div>
 
-        {/* Headline line 1 */}
         <div style={{ overflow: "hidden", marginBottom: 4 }}>
-          <h1 className="gsap-line1" style={{
-            ...S.heroTitle, opacity: 0,
-            margin: "14px 0 0",
-          }}>
+          <h1 className="gsap-line1" style={{ ...S.heroTitle, opacity: 0, margin: "14px 0 0" }}>
             Talk to someone
           </h1>
         </div>
 
-        {/* Headline line 2 — gradient accent */}
         <div style={{ overflow: "hidden", marginBottom: 10 }}>
           <h1 className="gsap-line2" style={{
-            ...S.heroTitle, opacity: 0,
-            margin: "0 0 0",
+            ...S.heroTitle, opacity: 0, margin: "0 0 0",
             background: "linear-gradient(90deg, #ffb84a 0%, #ff8c42 50%, #ffda8a 100%)",
             WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text",
           }}>
@@ -335,19 +327,14 @@ function GsapHero({ onStartRandom }: { onStartRandom: () => void }) {
           </h1>
         </div>
 
-        {/* Description */}
         <p className="gsap-desc" style={{
-          opacity: 0,
-          fontSize: "0.82rem",
-          color: "rgba(255,255,255,0.42)",
-          margin: "0 0 22px",
-          lineHeight: 1.6,
-          maxWidth: 260,
+          opacity: 0, fontSize: "0.82rem",
+          color: "rgba(255,255,255,0.42)", margin: "0 0 22px",
+          lineHeight: 1.6, maxWidth: 260,
         }}>
           Discover real connections with students around you — instantly, anonymously, authentically.
         </p>
 
-        {/* CTA */}
         <button className="gsap-cta" style={{ ...S.heroCta, opacity: 0 }} onClick={onStartRandom}>
           <Flame size={15} /> Start Random Chat
         </button>
@@ -381,6 +368,7 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
   const [selectedFriend, setSelectedFriend] = useState<User | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [lastMessages, setLastMessages] = useState<Record<string, string>>({});
+  // unreadCounts: { [userId]: number } — stores per-user unread MESSAGE count
   const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
 
   const [activeTab, setActiveTab] = useState<AppTab>("home");
@@ -390,11 +378,15 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [nameFilter, setNameFilter] = useState("");
 
-  // CHANGE 3: track whether keyboard dismiss is active
-  const [inputReadOnly, setInputReadOnly] = useState(false);
+  /**
+   * FIX 1 — Bottom nav badge = number of USERS who have unread messages (not total count).
+   * e.g. Raj sent 3, Akshat sent 1 → badge shows 2 (two users), not 4 (total messages).
+   */
+  const usersWithUnread = useMemo(
+    () => Object.values(unreadCounts).filter((count) => count > 0).length,
+    [unreadCounts]
+  );
 
-  const totalUnread = useMemo(
-    () => Object.values(unreadCounts).reduce((a, b) => a + b, 0), [unreadCounts]);
   const conversationIsOpen = activeTab === "chat" && !!selectedFriend;
 
   const filteredDiscoverUsers = useMemo(
@@ -415,12 +407,18 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
       if (msg.content) setLastMessages((c) => ({ ...c, [otherId]: msg.content! }));
 
       if (selectedFriend?.id === msg.senderId && conversationIsOpen && document.visibilityState === "visible") {
+        // Chat is open and visible — mark as read immediately
         socket.emit("message:read", { messageIds: [msg.id], senderId: msg.senderId });
         setUnreadCounts((c) => ({ ...c, [msg.senderId]: 0 }));
       } else if (msg.senderId !== user.id) {
-        setUnreadCounts((c) => ({ ...c, [msg.senderId]: Math.min((c[msg.senderId] ?? 0) + 1, 99) }));
+        // Increment per-user unread message count (capped at 99 for display)
+        setUnreadCounts((c) => ({
+          ...c,
+          [msg.senderId]: Math.min((c[msg.senderId] ?? 0) + 1, 99),
+        }));
       }
     });
+
     socket.on("message:read:update", ({ messageIds }: { messageIds: string[] }) => {
       setMessages((c) => c.map((m) => messageIds.includes(m.id) ? { ...m, isRead: true } : m));
     });
@@ -442,6 +440,7 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
       setNotifications((c) => [n, ...c].slice(0, 20));
       void Promise.all([loadFriends(), loadRequests()]);
     });
+
     return () => {
       ["message:new","message:read:update","typing:started","typing:stopped",
        "call:incoming","call:accepted","call:declined","notification:new"]
@@ -496,7 +495,8 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
       getSocket()?.emit("message:read", { messageIds: unread, senderId: otherId });
       setMessages((c) => c.map((m) => unread.includes(m.id) ? { ...m, isRead: true } : m));
     }
-    if (markRead) setUnreadCounts((c) => ({ ...c, [otherId]: 0 }));
+    // Always reset unread count for this user when opening their chat
+    setUnreadCounts((c) => ({ ...c, [otherId]: 0 }));
   }
 
   async function sendFriendRequest(id: string) {
@@ -556,27 +556,28 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
     getSocket()?.emit("typing:stop", { receiverId: selectedFriend.id });
     setMessageInput("");
     setImagePreview(null);
+    // Keep focus on input after sending so user can keep typing
     requestAnimationFrame(() => compInputRef.current?.focus());
   }
 
-  // CHANGE 3: keyboard dismiss — blur on every key, re-focus after 50ms
-  // This causes iOS to lower keyboard momentarily then raise it back,
-  // preventing the stuck-keyboard-after-1-key bug.
+  /**
+   * FIX 3 — Removed the blur+refocus handleKeyDown hack entirely.
+   * That "CHANGE 3" was the root cause of the keyboard-closes-on-every-keystroke bug.
+   * The input is a standard controlled component; React handles it correctly without any blur tricks.
+   * No onKeyDown handler is attached to the composer input.
+   */
   function handleTyping(e: React.ChangeEvent<HTMLInputElement>) {
     setMessageInput(e.target.value);
     if (!selectedFriend) return;
-    if (!isTyping) { setIsTyping(true); getSocket()?.emit("typing:start", { receiverId: selectedFriend.id }); }
+    if (!isTyping) {
+      setIsTyping(true);
+      getSocket()?.emit("typing:start", { receiverId: selectedFriend.id });
+    }
     if (typingTimer.current) clearTimeout(typingTimer.current);
     typingTimer.current = setTimeout(() => {
-      setIsTyping(false); getSocket()?.emit("typing:stop", { receiverId: selectedFriend.id });
+      setIsTyping(false);
+      getSocket()?.emit("typing:stop", { receiverId: selectedFriend.id });
     }, 2000);
-  }
-
-  // CHANGE 3: on every keydown, briefly blur (hides keyboard) then re-focus
-  function handleKeyDown() {
-    if (!compInputRef.current) return;
-    compInputRef.current.blur();
-    setTimeout(() => compInputRef.current?.focus(), 30);
   }
 
   function handleImgUpload(e: React.ChangeEvent<HTMLInputElement>) {
@@ -602,10 +603,8 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
         }
       />
       <div style={S.scrollArea}>
-        {/* CHANGE 1: GSAP animated hero — no photo */}
         <GsapHero onStartRandom={() => navigate("/app/random")} />
 
-        {/* Suggested */}
         <div style={S.section}>
           <div style={S.sectionHead}>
             <span style={S.sectionTitle}>Suggested</span>
@@ -621,7 +620,6 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
           }
         </div>
 
-        {/* Active friends */}
         <div style={S.section}>
           <div style={S.sectionHead}>
             <span style={S.sectionTitle}>Active friends</span>
@@ -716,7 +714,6 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
 
     return (
       <div style={S.screen}>
-        {/* Sticky Header */}
         <ScreenHeader
           title={selectedFriend.fullName}
           onBack={goBack}
@@ -742,7 +739,6 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
           </div>
         )}
 
-        {/* Messages */}
         <div style={{
           flex: 1, overflowY: "auto", overflowX: "hidden",
           padding: "12px 14px", display: "flex", flexDirection: "column",
@@ -778,7 +774,6 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
           <div ref={bottomRef} />
         </div>
 
-        {/* Image Preview */}
         {imagePreview && (
           <div style={{
             padding: "8px 14px", flexShrink: 0,
@@ -797,7 +792,11 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
           </div>
         )}
 
-        {/* Sticky Composer — CHANGE 3: onKeyDown handler added */}
+        {/*
+          FIX 3: Composer input — NO onKeyDown handler.
+          Standard controlled input; keyboard stays open while typing.
+          fontSize 16px prevents iOS auto-zoom on focus.
+        */}
         <form onSubmit={handleSend} style={{
           display: "flex", alignItems: "center", gap: 8,
           padding: "10px 14px",
@@ -822,8 +821,7 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
             placeholder="Message…"
             value={messageInput}
             onChange={handleTyping}
-            // CHANGE 3: blur+refocus on every keydown to dismiss keyboard between strokes
-            onKeyDown={handleKeyDown}
+            // No onKeyDown — removing the blur/refocus hack fixes the keyboard bug
             autoComplete="off"
             autoCorrect="off"
             spellCheck={false}
@@ -1038,10 +1036,15 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
   );
 
   // ─── Bottom Nav Config ────────────────────────────────────────────────────
+  /*
+   * FIX 1: badge uses `usersWithUnread` — the count of distinct users who have unread
+   * messages — instead of the raw sum of all unread messages.
+   * Example: Raj sent 3, Akshat sent 1 → badge = 2 (two users), not 4 (four messages).
+   */
   const tabs: { id: AppTab; label: string; icon: React.ReactNode; badge?: number }[] = [
     { id: "home", label: "Home", icon: <Home size={21} /> },
     { id: "discover", label: "Discover", icon: <Search size={21} /> },
-    { id: "messages", label: "Messages", icon: <MessageCircle size={21} />, badge: totalUnread },
+    { id: "messages", label: "Messages", icon: <MessageCircle size={21} />, badge: usersWithUnread },
     { id: "profile", label: "Profile", icon: <UserCircle2 size={21} /> },
   ];
   const navActive = (id: AppTab) =>
@@ -1107,6 +1110,7 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
               }}>
                 {tab.icon}
                 <span>{tab.label}</span>
+                {/* FIX 1: badge = number of users with unread (not total message count) */}
                 {tab.badge && tab.badge > 0 ? (
                   <span style={{
                     position: "absolute", top: 6,
