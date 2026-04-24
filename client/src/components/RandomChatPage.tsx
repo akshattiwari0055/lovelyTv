@@ -145,58 +145,70 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
     setZegoRenderMatch(null);
   }, [match]);
 
-  // FIX 1: Remove Zego's built-in hangup/leave button via DOM observer
+  // FIX 1: Aggressively remove ALL Zego-rendered buttons (hangup etc.) via DOM + style injection
   useEffect(() => {
-    const removeZegoUI = (node: HTMLElement) => {
-      // Remove "Media play failed" / "Resume" overlays
-      const text = node.textContent || "";
-      if (text.includes("Media play failed") || text.includes("Resume")) {
-        let target: HTMLElement = node;
-        while (target.parentElement && target.parentElement !== document.body) target = target.parentElement;
-        target.remove();
-        return;
-      }
-    };
-
-    // Inject CSS to hide Zego's internal leave/hangup button and footer bar
+    // Inject global CSS that nukes every button inside any Zego container
     const style = document.createElement("style");
-    style.id = "zego-overrides";
+    style.id = "zego-kill-ui";
     style.textContent = `
-      /* Hide Zego leave/hangup button and bottom toolbar */
-      [class*="ZegoRoomFooter"],
-      [class*="zego-room-footer"],
-      [class*="ZegoLeaveButton"],
-      [class*="zego-leave"],
+      /* Kill any element whose class contains these fragments anywhere in the DOM */
+      [class*="ZegoRoom"] button,
+      [class*="zegoRoom"] button,
+      [class*="zego-room"] button,
       [class*="ZegoFooter"],
-      [class*="footer-leave"],
-      [data-testid*="leave"],
-      button[title*="Leave"],
-      button[title*="leave"],
-      button[aria-label*="Leave"],
-      button[aria-label*="leave"],
-      button[aria-label*="Hang"],
-      button[aria-label*="hang"] {
+      [class*="zegoFooter"],
+      [class*="ZegoToolbar"],
+      [class*="zegoToolbar"],
+      [class*="ZegoLeave"],
+      [class*="zegoLeave"],
+      [class*="ZegoHangup"],
+      [id*="zego"] button,
+      [id*="Zego"] button {
         display: none !important;
         visibility: hidden !important;
         pointer-events: none !important;
-      }
-      /* Hide any bottom bar Zego renders */
-      [class*="ZegoRoom"] > div > div:last-child:has(button) {
-        display: none !important;
+        width: 0 !important; height: 0 !important;
+        overflow: hidden !important; opacity: 0 !important;
       }
     `;
-    if (!document.getElementById("zego-overrides")) {
+    if (!document.getElementById("zego-kill-ui")) {
       document.head.appendChild(style);
     }
 
-    const observer = new MutationObserver((mutations) =>
-      mutations.forEach((m) => m.addedNodes.forEach((n) => { if (n instanceof HTMLElement) removeZegoUI(n); }))
-    );
-    observer.observe(document.body, { childList: true, subtree: true });
-    document.body.querySelectorAll<HTMLElement>("div").forEach((div) => { if (div.parentElement === document.body) removeZegoUI(div); });
+    // Also remove via MutationObserver — catches dynamically injected buttons
+    const hideZegoButtons = (root: Element | Document = document) => {
+      // Find all buttons that look like Zego's hangup (red background, phone icon SVG)
+      root.querySelectorAll<HTMLElement>("button, [role='button']").forEach((btn) => {
+        const bg = window.getComputedStyle(btn).backgroundColor;
+        const isRed = bg.includes("220, 38") || bg.includes("239, 68") || bg.includes("185, 28") || bg.includes("220,38") || bg.includes("239,68");
+        const hasPhone = btn.querySelector("svg") !== null &&
+          (btn.innerHTML.includes("phone") || btn.innerHTML.includes("Phone") ||
+           btn.innerHTML.includes("M6.6") || btn.innerHTML.includes("hangup") ||
+           btn.title?.toLowerCase().includes("leave") ||
+           btn.getAttribute("aria-label")?.toLowerCase().includes("leave"));
+        if (isRed || hasPhone) {
+          btn.style.setProperty("display", "none", "important");
+          btn.style.setProperty("visibility", "hidden", "important");
+          btn.style.setProperty("pointer-events", "none", "important");
+        }
+      });
+      // Also remove "Media play failed" overlays
+      root.querySelectorAll<HTMLElement>("div, span").forEach((el) => {
+        if ((el.textContent || "").includes("Media play failed") || (el.textContent || "").includes("Resume")) {
+          let target: HTMLElement = el;
+          while (target.parentElement && target.parentElement !== document.body) target = target.parentElement;
+          target.remove();
+        }
+      });
+    };
+
+    hideZegoButtons();
+    const observer = new MutationObserver(() => hideZegoButtons());
+    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["style", "class"] });
+
     return () => {
       observer.disconnect();
-      document.getElementById("zego-overrides")?.remove();
+      document.getElementById("zego-kill-ui")?.remove();
     };
   }, []);
 
@@ -443,6 +455,8 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
             flex: 0 0 62%; position: relative;
             background: #0d0d10;
             border-right: 1px solid rgba(255,255,255,0.06);
+            /* Fill full height — no dead space below videos */
+            display: flex; flex-direction: column;
           }
           .rcp-sidebar { flex: 1; display: flex; flex-direction: column; background: #0a0a0c; }
         }
@@ -459,7 +473,8 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
           width: 100%; height: 100%;
         }
 
-        /* FIX 1: Aggressively hide Zego's built-in leave/hangup button */
+        /* FIX 1: Nuke ALL Zego built-in UI chrome — hangup, toolbars, overlays */
+        /* Target by class fragments */
         .rcp-zego-fill [class*="footer"],
         .rcp-zego-fill [class*="Footer"],
         .rcp-zego-fill [class*="leave"],
@@ -468,18 +483,39 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
         .rcp-zego-fill [class*="Hangup"],
         .rcp-zego-fill [class*="toolbar"],
         .rcp-zego-fill [class*="Toolbar"],
-        .rcp-zego-fill [class*="bottom-bar"],
-        .rcp-zego-fill button[title*="Leave"],
-        .rcp-zego-fill button[aria-label*="Leave"],
-        .rcp-zego-fill button[aria-label*="leave"],
-        .rcp-zego-fill button[aria-label*="Hang"],
-        .rcp-zego-fill svg[class*="phone"] {
+        .rcp-zego-fill [class*="bottom"],
+        .rcp-zego-fill [class*="Bottom"],
+        .rcp-zego-fill [class*="control"],
+        .rcp-zego-fill [class*="Control"],
+        .rcp-zego-fill [class*="action"],
+        .rcp-zego-fill [class*="Action"],
+        .rcp-zego-fill [class*="bar"],
+        .rcp-zego-fill [class*="Bar"],
+        .rcp-zego-fill button,
+        .rcp-zego-fill [role="button"] {
           display: none !important;
           visibility: hidden !important;
           pointer-events: none !important;
           width: 0 !important;
           height: 0 !important;
           opacity: 0 !important;
+          position: absolute !important;
+          overflow: hidden !important;
+        }
+        /* Make Zego's root container and video grid fill everything */
+        .rcp-zego-fill > div,
+        .rcp-zego-fill > div > div {
+          width: 100% !important;
+          height: 100% !important;
+          max-width: 100% !important;
+          max-height: 100% !important;
+          background: #0d0d10 !important;
+        }
+        /* Zego video tiles — fill available height fully */
+        .rcp-zego-fill video {
+          width: 100% !important;
+          height: 100% !important;
+          object-fit: cover !important;
         }
 
         /* Idle / connecting screen */
