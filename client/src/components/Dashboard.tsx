@@ -188,7 +188,7 @@ function MessageBubble({ msg, mine }: { msg: Message; mine: boolean }) {
     alt="img"
     style={{
       width: "100%",
-      maxWidth: "min(260px, 70vw)",  // ✅ prevents large stretching
+      maxWidth: "min(260px, 70vw)", 
       height: "auto",
       borderRadius: 8,
       marginBottom: 6,

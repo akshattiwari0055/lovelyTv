@@ -73,6 +73,12 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
   const [connectionIssue, setConnectionIssue] = useState("");
   const [showReactionTray, setShowReactionTray] = useState(false);
 
+  // Swipe state
+  const swipeStartX = useRef<number | null>(null);
+  const swipeStartY = useRef<number | null>(null);
+  const [swipeDelta, setSwipeDelta] = useState(0);
+  const [swipeDir, setSwipeDir] = useState<"left" | "right" | null>(null);
+
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const hasStartedRef = useRef(hasStarted);
   const matchRef = useRef(match);
@@ -121,7 +127,6 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
           if (cancelled) return;
           if (error.name === "NotReadableError") {
             previewRetryTimerRef.current = window.setTimeout(() => { if (!cancelled) startPreview(); }, 1000);
-            return;
           }
         });
     };
@@ -159,7 +164,7 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
     if (!zegoConnecting) return;
     zegoTimeoutRef.current = window.setTimeout(() => {
       setMatch(null); setZegoRenderMatch(null); setZegoConnecting(false); setRoomRevealPending(false);
-      setConnectionIssue("Video connection timed out. Tap Next to try another partner.");
+      setConnectionIssue("Video connection timed out. Try another partner.");
     }, 12000);
     return () => { if (zegoTimeoutRef.current !== null) { window.clearTimeout(zegoTimeoutRef.current); zegoTimeoutRef.current = null; } };
   }, [zegoConnecting]);
@@ -211,6 +216,34 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
     };
   }, [token]);
 
+  // Touch swipe handlers for mobile
+  function handleTouchStart(e: React.TouchEvent) {
+    swipeStartX.current = e.touches[0].clientX;
+    swipeStartY.current = e.touches[0].clientY;
+    setSwipeDelta(0);
+    setSwipeDir(null);
+  }
+
+  function handleTouchMove(e: React.TouchEvent) {
+    if (swipeStartX.current === null || swipeStartY.current === null) return;
+    const dx = e.touches[0].clientX - swipeStartX.current;
+    const dy = e.touches[0].clientY - swipeStartY.current;
+    if (Math.abs(dy) > Math.abs(dx) + 10) return; // vertical scroll wins
+    setSwipeDelta(dx);
+    setSwipeDir(dx > 0 ? "right" : "left");
+  }
+
+  function handleTouchEnd() {
+    if (Math.abs(swipeDelta) > 80 && hasStarted) {
+      if (swipeDir === "right" && match) nextMatch();
+      else if (swipeDir === "left") stopMatching();
+    }
+    setSwipeDelta(0);
+    setSwipeDir(null);
+    swipeStartX.current = null;
+    swipeStartY.current = null;
+  }
+
   async function handleFriendAction() {
     if (!match?.partner || !relationship || actionBusy) return;
     try {
@@ -236,7 +269,7 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
     try {
       setActionBusy("report");
       await api.post(`/users/${match.partner.id}/report`, { reason: reportReason, details: reportDetails });
-      setActionMessage("Report submitted. Thanks for helping keep the chat safe.");
+      setActionMessage("Report submitted.");
       setShowReportSheet(false); setReportDetails("");
     } catch (error: any) {
       setActionMessage(error?.response?.data?.message ?? "Could not submit report.");
@@ -304,319 +337,401 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
 
   const isInCall = Boolean(match) && !zegoConnecting;
 
+  // Swipe visual cue transform
+  const swipeStyle = Math.abs(swipeDelta) > 20 ? {
+    transform: `translateX(${swipeDelta * 0.15}px)`,
+    transition: "none",
+  } : { transform: "translateX(0)", transition: "transform 0.3s ease" };
+
   return (
     <>
-      {/* ── Global styles ── */}
       <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500;600&display=swap');
+
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
         .rcp-root {
           display: flex;
           flex-direction: column;
           height: 100dvh;
           width: 100%;
-          max-width: 480px;
-          margin: 0 auto;
-          background: #0d0d0f;
-          position: relative;
+          background: #0a0a0b;
+          font-family: 'DM Sans', sans-serif;
           overflow: hidden;
-          font-family: -apple-system, 'SF Pro Display', BlinkMacSystemFont, sans-serif;
+          position: relative;
         }
 
-        /* ── Header ── */
-        .rcp-header {
-          position: absolute;
-          top: 0; left: 0; right: 0;
-          z-index: 40;
+        /* ─── TOP BAR ─── */
+        .rcp-topbar {
           display: flex;
           align-items: center;
           justify-content: space-between;
-          padding: env(safe-area-inset-top, 12px) 16px 12px;
-          padding-top: max(env(safe-area-inset-top), 12px);
-          background: linear-gradient(to bottom, rgba(0,0,0,0.75) 0%, transparent 100%);
+          padding: max(env(safe-area-inset-top), 10px) 20px 10px;
+          background: #0a0a0b;
+          border-bottom: 1px solid rgba(255,255,255,0.06);
+          flex-shrink: 0;
+          z-index: 50;
         }
-        .rcp-logo {
-          font-size: 17px;
-          font-weight: 700;
+        .rcp-wordmark {
+          font-family: 'Syne', sans-serif;
+          font-weight: 800;
+          font-size: 18px;
           color: #fff;
-          letter-spacing: -0.3px;
+          letter-spacing: -0.5px;
           cursor: pointer;
           display: flex;
           align-items: center;
-          gap: 6px;
-        }
-        .rcp-logo-dot {
-          width: 8px; height: 8px;
-          border-radius: 50%;
-          background: #a78bfa;
-        }
-        .rcp-header-right {
-          display: flex;
-          align-items: center;
           gap: 8px;
+          user-select: none;
         }
-        .rcp-status-badge {
+        .rcp-wordmark-badge {
+          font-size: 10px;
+          font-weight: 600;
+          letter-spacing: 1.5px;
+          color: #e5ff00;
+          text-transform: uppercase;
+          background: rgba(229,255,0,0.1);
+          border: 1px solid rgba(229,255,0,0.25);
+          border-radius: 4px;
+          padding: 2px 6px;
+          font-family: 'DM Sans', sans-serif;
+        }
+        .rcp-topbar-right {
           display: flex;
           align-items: center;
-          gap: 5px;
-          background: rgba(255,255,255,0.1);
-          backdrop-filter: blur(10px);
-          border: 1px solid rgba(255,255,255,0.12);
-          border-radius: 20px;
-          padding: 5px 10px;
+          gap: 10px;
+        }
+        .rcp-status-chip {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          padding: 5px 12px;
+          border-radius: 100px;
+          background: rgba(255,255,255,0.05);
+          border: 1px solid rgba(255,255,255,0.08);
           font-size: 12px;
-          color: rgba(255,255,255,0.85);
           font-weight: 500;
+          color: rgba(255,255,255,0.6);
         }
         .rcp-status-dot {
-          width: 6px; height: 6px;
+          width: 7px; height: 7px;
           border-radius: 50%;
-          background: #6b7280;
-          transition: background 0.3s;
-        }
-        .rcp-status-dot.live { background: #4ade80; box-shadow: 0 0 6px #4ade80; }
-        .rcp-status-dot.searching {
-          background: #fb923c;
-          animation: rcp-blink 1s ease-in-out infinite;
-        }
-        @keyframes rcp-blink { 0%,100%{opacity:1} 50%{opacity:0.35} }
-
-        /* ── FIXED: Two-block vertical video layout ── */
-        .rcp-video-stack {
-          flex: 1;
-          display: flex;
-          flex-direction: column;
-          min-height: 0;
-          width: 100%;
-        }
-        .rcp-block {
-          position: relative;
-          overflow: hidden;
-          width: 100%;
+          background: #555;
           flex-shrink: 0;
         }
-        .rcp-block-remote {
-          flex: 1.15;
-          min-height: 0;
+        .rcp-status-dot.live { background: #4ade80; box-shadow: 0 0 8px #4ade8080; }
+        .rcp-status-dot.searching { background: #e5ff00; animation: rcp-pulse 1.2s ease-in-out infinite; }
+        @keyframes rcp-pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.5;transform:scale(0.8)} }
+        .rcp-report-btn {
+          width: 34px; height: 34px;
+          border-radius: 10px;
+          background: rgba(239,68,68,0.1);
+          border: 1px solid rgba(239,68,68,0.2);
+          display: flex; align-items: center; justify-content: center;
+          color: #f87171;
+          cursor: pointer;
+          transition: background 0.15s;
         }
-        .rcp-block-local {
-          flex: 0.85;
+        .rcp-report-btn:hover { background: rgba(239,68,68,0.2); }
+
+        /* ─── MAIN VIDEO AREA ─── */
+        .rcp-main {
+          flex: 1;
+          display: flex;
           min-height: 0;
-          border-top: 2px solid #1a1a1f;
+          gap: 0;
+          position: relative;
         }
 
-        /* FIXED: VideoRoom and video fill their block completely */
-        .rcp-block > div,
-        .rcp-block > video {
+        /* DESKTOP: side by side */
+        @media (min-width: 769px) {
+          .rcp-main { flex-direction: row; gap: 12px; padding: 12px; }
+          .rcp-panel { border-radius: 16px; overflow: hidden; }
+          .rcp-panel-remote { flex: 1.1; }
+          .rcp-panel-local  { flex: 0.9; }
+        }
+
+        /* MOBILE: stacked */
+        @media (max-width: 768px) {
+          .rcp-main { flex-direction: column; padding: 0; }
+          .rcp-panel { border-radius: 0; }
+          .rcp-panel-remote { flex: 1.1; border-bottom: 2px solid rgba(255,255,255,0.05); }
+          .rcp-panel-local  { flex: 0.9; }
+        }
+
+        .rcp-panel {
+          position: relative;
+          overflow: hidden;
+          background: #111114;
+          flex-shrink: 0;
+        }
+        .rcp-panel > div,
+        .rcp-panel > video {
           width: 100% !important;
           height: 100% !important;
         }
-
-        .rcp-block video {
+        .rcp-panel video {
           width: 100%;
           height: 100%;
           object-fit: cover;
           display: block;
         }
-        .rcp-block-bg {
-          width: 100%; height: 100%;
+
+        /* Panel placeholder content */
+        .rcp-panel-idle {
+          position: absolute;
+          inset: 0;
           display: flex;
+          flex-direction: column;
           align-items: center;
           justify-content: center;
-          flex-direction: column;
-          gap: 12px;
+          gap: 14px;
+          background: linear-gradient(135deg, #111118 0%, #0d0d14 100%);
         }
-        .rcp-block-remote .rcp-block-bg { background: linear-gradient(165deg, #141428 0%, #0f1f35 100%); }
-        .rcp-block-local .rcp-block-bg  { background: linear-gradient(165deg, #1a1a1a 0%, #111 100%); }
-
-        /* pulse rings for waiting */
-        .rcp-pulse-wrap {
-          position: relative;
-          width: 60px; height: 60px;
+        .rcp-panel-idle-icon {
+          width: 56px; height: 56px;
+          border-radius: 18px;
+          background: rgba(255,255,255,0.05);
+          border: 1px solid rgba(255,255,255,0.08);
           display: flex; align-items: center; justify-content: center;
         }
-        .rcp-pulse-ring {
-          position: absolute;
-          border-radius: 50%;
-          border: 1.5px solid rgba(167,139,250,0.4);
-          animation: rcp-pulse-out 2s ease-out infinite;
-        }
-        .rcp-pulse-ring:nth-child(1) { width: 60px; height: 60px; animation-delay: 0s; }
-        .rcp-pulse-ring:nth-child(2) { width: 44px; height: 44px; animation-delay: 0.5s; }
-        @keyframes rcp-pulse-out {
-          0%   { transform: scale(0.8); opacity: 0.6; }
-          100% { transform: scale(1.4); opacity: 0; }
-        }
-        .rcp-pulse-icon {
-          width: 36px; height: 36px;
-          border-radius: 50%;
-          background: rgba(167,139,250,0.15);
-          display: flex; align-items: center; justify-content: center;
-          position: relative; z-index: 1;
-        }
-        .rcp-idle-text {
-          font-size: 14px;
-          color: rgba(255,255,255,0.45);
-          font-weight: 400;
-          letter-spacing: 0.1px;
+        .rcp-idle-label {
+          font-size: 13px;
+          font-weight: 500;
+          color: rgba(255,255,255,0.3);
+          letter-spacing: 0.2px;
         }
         .rcp-idle-sub {
-          font-size: 12px;
-          color: rgba(255,255,255,0.22);
+          font-size: 11px;
+          color: rgba(255,255,255,0.15);
+          margin-top: -8px;
         }
 
-        /* partner name + timer overlay on remote block */
-        .rcp-remote-overlay {
+        /* Pulse spinner */
+        .rcp-spinner {
+          width: 44px; height: 44px;
+          position: relative;
+          display: flex; align-items: center; justify-content: center;
+        }
+        .rcp-spinner::before, .rcp-spinner::after {
+          content: '';
           position: absolute;
-          top: 0; left: 0; right: 0;
-          padding: 56px 14px 12px;
-          background: linear-gradient(to bottom, rgba(0,0,0,0.55) 0%, transparent 100%);
-          display: flex;
-          align-items: center;
-          gap: 8px;
+          border-radius: 50%;
+          border: 2px solid transparent;
+          border-top-color: #e5ff00;
+          animation: rcp-spin 1s linear infinite;
+        }
+        .rcp-spinner::before { width: 44px; height: 44px; }
+        .rcp-spinner::after  { width: 30px; height: 30px; animation-duration: 0.7s; border-top-color: rgba(229,255,0,0.35); }
+        @keyframes rcp-spin { to { transform: rotate(360deg); } }
+
+        /* Panel overlays */
+        .rcp-remote-label {
+          position: absolute;
+          top: 14px; left: 14px;
+          display: flex; align-items: center; gap: 8px;
+          z-index: 10;
           pointer-events: none;
         }
         .rcp-live-pill {
-          display: flex; align-items: center; gap: 4px;
-          background: rgba(239,68,68,0.85);
+          display: flex; align-items: center; gap: 5px;
+          background: rgba(239,68,68,0.9);
           border-radius: 6px;
-          padding: 3px 7px;
-          font-size: 11px;
-          font-weight: 600;
+          padding: 4px 8px;
+          font-size: 10px;
+          font-weight: 700;
           color: #fff;
-          letter-spacing: 0.5px;
+          letter-spacing: 1px;
           text-transform: uppercase;
+          font-family: 'Syne', sans-serif;
         }
-        .rcp-live-dot {
+        .rcp-live-blink {
           width: 5px; height: 5px;
           border-radius: 50%;
           background: #fff;
-          animation: rcp-blink 1s infinite;
+          animation: rcp-pulse 0.9s infinite;
         }
-        .rcp-partner-name {
-          font-size: 13px;
+        .rcp-partner-chip {
+          background: rgba(0,0,0,0.5);
+          backdrop-filter: blur(10px);
+          border: 1px solid rgba(255,255,255,0.1);
+          border-radius: 8px;
+          padding: 4px 10px;
+          font-size: 12px;
           font-weight: 600;
           color: #fff;
-          text-shadow: 0 1px 4px rgba(0,0,0,0.5);
         }
-        .rcp-timer {
-          font-size: 12px;
+        .rcp-timer-chip {
+          background: rgba(0,0,0,0.4);
+          backdrop-filter: blur(6px);
+          border-radius: 6px;
+          padding: 3px 8px;
+          font-size: 11px;
           color: rgba(255,255,255,0.6);
           font-variant-numeric: tabular-nums;
-          margin-left: auto;
         }
 
-        /* action buttons on remote block (top-right) */
-        .rcp-block-actions {
+        /* In-panel actions (top right of remote) */
+        .rcp-panel-actions {
           position: absolute;
-          top: 52px; right: 12px;
+          top: 14px; right: 14px;
           display: flex;
           flex-direction: column;
           gap: 8px;
-          z-index: 20;
+          z-index: 15;
         }
-        .rcp-icon-btn {
-          width: 36px; height: 36px;
-          border-radius: 50%;
-          background: rgba(0,0,0,0.45);
-          backdrop-filter: blur(8px);
-          border: 1px solid rgba(255,255,255,0.12);
+        .rcp-action-btn {
+          width: 38px; height: 38px;
+          border-radius: 12px;
           display: flex; align-items: center; justify-content: center;
-          color: rgba(255,255,255,0.85);
           cursor: pointer;
-          transition: background 0.15s, transform 0.1s;
+          border: none;
+          transition: transform 0.12s, opacity 0.15s;
         }
-        .rcp-icon-btn:active { transform: scale(0.92); }
-        .rcp-icon-btn.friend  { color: #a78bfa; }
-        .rcp-icon-btn.report  { color: #fbbf24; }
-        .rcp-icon-btn.block   { color: #f87171; }
-        .rcp-icon-btn.chat-active { background: rgba(167,139,250,0.25); border-color: rgba(167,139,250,0.4); }
+        .rcp-action-btn:active { transform: scale(0.88); }
+        .rcp-action-btn:disabled { opacity: 0.3; cursor: default; }
+        .rcp-action-btn.friend { background: rgba(167,139,250,0.15); border: 1px solid rgba(167,139,250,0.3); color: #a78bfa; }
+        .rcp-action-btn.report { background: rgba(251,191,36,0.12); border: 1px solid rgba(251,191,36,0.25); color: #fbbf24; }
+        .rcp-action-btn.block  { background: rgba(248,113,113,0.12); border: 1px solid rgba(248,113,113,0.25); color: #f87171; }
 
-        /* local block label */
-        .rcp-local-label {
+        /* Floating reactions */
+        .rcp-float-layer {
           position: absolute;
-          bottom: 8px; left: 10px;
-          font-size: 11px;
-          font-weight: 500;
-          color: rgba(255,255,255,0.5);
-          background: rgba(0,0,0,0.35);
-          border-radius: 6px;
-          padding: 2px 7px;
-        }
-
-        /* floating reactions */
-        .rcp-reactions-layer {
-          position: absolute;
-          bottom: 0; left: 14px;
+          bottom: 16px; left: 16px;
+          pointer-events: none;
+          z-index: 20;
           display: flex;
           flex-direction: column-reverse;
           gap: 4px;
-          pointer-events: none;
-          z-index: 30;
         }
         .rcp-float-emoji {
-          font-size: 26px;
-          animation: rcp-float 2.2s ease-out forwards;
+          font-size: 28px;
+          animation: rcp-float-up 2.2s ease-out forwards;
         }
-        .rcp-float-emoji.own { filter: drop-shadow(0 0 6px rgba(167,139,250,0.7)); }
-        @keyframes rcp-float {
+        .rcp-float-emoji.own { filter: drop-shadow(0 0 8px rgba(229,255,0,0.5)); }
+        @keyframes rcp-float-up {
           0%   { opacity: 1; transform: translateY(0) scale(1); }
           70%  { opacity: 0.8; }
-          100% { opacity: 0; transform: translateY(-90px) scale(1.4); }
+          100% { opacity: 0; transform: translateY(-100px) scale(1.5); }
         }
 
-        /* toast */
-        .rcp-toast {
+        /* Local panel label */
+        .rcp-you-label {
           position: absolute;
-          top: 56px; left: 50%;
-          transform: translateX(-50%);
-          z-index: 50;
-          background: rgba(10,10,15,0.85);
-          backdrop-filter: blur(12px);
-          border: 1px solid rgba(255,255,255,0.1);
-          border-radius: 20px;
-          padding: 7px 16px;
-          font-size: 12px;
-          font-weight: 500;
-          color: rgba(255,255,255,0.9);
-          white-space: nowrap;
+          bottom: 10px; left: 12px;
+          background: rgba(0,0,0,0.45);
+          backdrop-filter: blur(6px);
+          border-radius: 6px;
+          padding: 3px 9px;
+          font-size: 11px;
+          font-weight: 600;
+          color: rgba(255,255,255,0.5);
           pointer-events: none;
-          animation: rcp-fade-in 0.2s ease;
         }
-        @keyframes rcp-fade-in { from{opacity:0;transform:translateX(-50%) translateY(4px)} to{opacity:1;transform:translateX(-50%) translateY(0)} }
 
-        /* ── Bottom controls ── */
-        .rcp-controls {
-          flex-shrink: 0;
-          background: #0d0d0f;
-          border-top: 1px solid #1a1a1f;
-          padding: 12px 16px max(env(safe-area-inset-bottom), 16px);
-        }
-        .rcp-reaction-tray {
-          display: flex;
-          justify-content: center;
-          gap: 10px;
-          margin-bottom: 12px;
-          animation: rcp-slide-up 0.2s ease;
-        }
-        @keyframes rcp-slide-up { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:translateY(0)} }
-        .rcp-emoji-btn {
-          width: 44px; height: 44px;
-          border-radius: 50%;
-          background: #1c1c24;
-          border: 1px solid #2a2a35;
-          font-size: 20px;
-          cursor: pointer;
-          display: flex; align-items: center; justify-content: center;
-          transition: transform 0.1s, background 0.15s;
-        }
-        .rcp-emoji-btn:active { transform: scale(0.88); background: #252535; }
-
-        .rcp-btn-row {
+        /* Swipe hint overlay */
+        .rcp-swipe-hint {
+          position: absolute;
+          inset: 0;
           display: flex;
           align-items: center;
           justify-content: center;
-          gap: 16px;
+          pointer-events: none;
+          z-index: 30;
+          opacity: 0;
+          transition: opacity 0.2s;
         }
-        .rcp-btn {
+        .rcp-swipe-hint.show { opacity: 1; }
+        .rcp-swipe-hint-label {
+          font-size: 20px;
+          font-weight: 700;
+          font-family: 'Syne', sans-serif;
+          color: #fff;
+          text-shadow: 0 2px 20px rgba(0,0,0,0.8);
+          padding: 10px 24px;
+          border-radius: 12px;
+          backdrop-filter: blur(12px);
+        }
+        .rcp-swipe-hint-label.next { background: rgba(229,255,0,0.2); border: 2px solid rgba(229,255,0,0.5); color: #e5ff00; }
+        .rcp-swipe-hint-label.stop { background: rgba(239,68,68,0.2); border: 2px solid rgba(239,68,68,0.5); color: #f87171; }
+
+        /* ─── BOTTOM BAR ─── */
+        .rcp-bottom {
+          flex-shrink: 0;
+          background: #0a0a0b;
+          border-top: 1px solid rgba(255,255,255,0.06);
+          padding: 12px 16px max(env(safe-area-inset-bottom), 14px);
+          z-index: 50;
+        }
+
+        /* Reaction tray */
+        .rcp-reaction-row {
+          display: flex;
+          justify-content: center;
+          gap: 8px;
+          margin-bottom: 10px;
+          animation: rcp-slide-up 0.18s ease;
+        }
+        @keyframes rcp-slide-up { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:translateY(0)} }
+        .rcp-emoji-pill {
+          padding: 8px 14px;
+          border-radius: 100px;
+          background: #1a1a20;
+          border: 1px solid rgba(255,255,255,0.08);
+          font-size: 18px;
+          cursor: pointer;
+          transition: transform 0.1s, background 0.15s;
+        }
+        .rcp-emoji-pill:active { transform: scale(0.85); }
+
+        /* Control buttons */
+        .rcp-controls-row {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+        }
+
+        /* Desktop: buttons + chat input side by side */
+        @media (min-width: 769px) {
+          .rcp-controls-row { justify-content: space-between; }
+          .rcp-btn-group { display: flex; align-items: center; gap: 10px; }
+          .rcp-chat-inline { flex: 1; max-width: 420px; display: flex; gap: 8px; }
+          .rcp-chat-inline-input {
+            flex: 1;
+            background: rgba(255,255,255,0.06);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 12px;
+            padding: 11px 16px;
+            font-size: 14px;
+            color: #fff;
+            outline: none;
+            font-family: 'DM Sans', sans-serif;
+          }
+          .rcp-chat-inline-input::placeholder { color: rgba(255,255,255,0.25); }
+          .rcp-chat-inline-input:focus { border-color: rgba(229,255,0,0.35); }
+          .rcp-chat-inline-send {
+            width: 44px; height: 44px;
+            border-radius: 12px;
+            background: #e5ff00;
+            border: none;
+            cursor: pointer;
+            display: flex; align-items: center; justify-content: center;
+            color: #0a0a0b;
+            flex-shrink: 0;
+            transition: transform 0.1s, background 0.15s;
+          }
+          .rcp-chat-inline-send:disabled { background: #2a2a30; color: #666; }
+          .rcp-chat-inline-send:not(:disabled):active { transform: scale(0.9); }
+        }
+
+        /* Mobile: buttons only, chat drawer */
+        @media (max-width: 768px) {
+          .rcp-controls-row { justify-content: space-around; }
+          .rcp-btn-group { display: contents; }
+          .rcp-chat-inline { display: none; }
+        }
+
+        .rcp-ctrl-btn {
           display: flex;
           flex-direction: column;
           align-items: center;
@@ -626,206 +741,249 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
           cursor: pointer;
           color: #fff;
           padding: 0;
-          min-width: 56px;
         }
-        .rcp-btn:disabled { opacity: 0.35; cursor: default; }
-        .rcp-btn-circle {
-          width: 56px; height: 56px;
-          border-radius: 50%;
+        .rcp-ctrl-btn:disabled { opacity: 0.3; cursor: default; }
+        .rcp-ctrl-icon {
+          width: 52px; height: 52px;
+          border-radius: 16px;
           display: flex; align-items: center; justify-content: center;
           transition: transform 0.12s, filter 0.15s;
         }
-        .rcp-btn:active .rcp-btn-circle { transform: scale(0.92); }
-        .rcp-btn-label {
-          font-size: 11px;
-          color: rgba(255,255,255,0.5);
-          font-weight: 500;
-          letter-spacing: 0.2px;
+        .rcp-ctrl-btn:active .rcp-ctrl-icon:not(.nodim) { transform: scale(0.9); filter: brightness(0.85); }
+        .rcp-ctrl-label {
+          font-size: 10px;
+          font-weight: 600;
+          color: rgba(255,255,255,0.4);
+          letter-spacing: 0.5px;
+          text-transform: uppercase;
+          font-family: 'Syne', sans-serif;
         }
 
-        .rcp-btn-start .rcp-btn-circle  { background: #7c3aed; }
-        .rcp-btn-stop .rcp-btn-circle   { background: #dc2626; }
-        .rcp-btn-next .rcp-btn-circle   { background: #1c1c28; border: 1px solid #2a2a3a; }
-        .rcp-btn-react .rcp-btn-circle  { background: #1c1c28; border: 1px solid #2a2a3a; }
-        .rcp-btn-chat .rcp-btn-circle   { background: #1c1c28; border: 1px solid #2a2a3a; }
-        .rcp-btn-chat.active .rcp-btn-circle { background: rgba(167,139,250,0.18); border-color: rgba(167,139,250,0.35); }
-        .rcp-btn-chat.active .rcp-btn-label  { color: #a78bfa; }
+        .icon-start  { background: #e5ff00; color: #0a0a0b; }
+        .icon-stop   { background: #dc2626; }
+        .icon-next   { background: #1a1a22; border: 1px solid rgba(255,255,255,0.1); }
+        .icon-react  { background: #1a1a22; border: 1px solid rgba(255,255,255,0.1); }
+        .icon-chat   { background: #1a1a22; border: 1px solid rgba(255,255,255,0.1); }
+        .icon-chat.active { background: rgba(229,255,0,0.1); border-color: rgba(229,255,0,0.3); }
 
-        /* ── Live chat drawer ── */
-        .rcp-chat-drawer {
+        /* Swipe hint for mobile */
+        .rcp-swipe-guide {
+          display: none;
+        }
+        @media (max-width: 768px) {
+          .rcp-swipe-guide {
+            display: flex;
+            justify-content: center;
+            gap: 24px;
+            margin-bottom: 10px;
+          }
+          .rcp-swipe-tip {
+            font-size: 11px;
+            color: rgba(255,255,255,0.2);
+            display: flex;
+            align-items: center;
+            gap: 4px;
+          }
+          .rcp-swipe-tip span { font-size: 13px; }
+        }
+
+        /* ─── CHAT DRAWER (mobile) ─── */
+        .rcp-drawer {
           position: absolute;
           bottom: 0; left: 0; right: 0;
-          z-index: 60;
-          background: rgba(13,13,18,0.97);
-          backdrop-filter: blur(16px);
+          z-index: 80;
+          background: rgba(12,12,16,0.98);
+          backdrop-filter: blur(20px);
           border-top: 1px solid rgba(255,255,255,0.07);
           border-radius: 20px 20px 0 0;
           transform: translateY(100%);
-          transition: transform 0.28s cubic-bezier(0.32, 0.72, 0, 1);
-          max-height: 60%;
+          transition: transform 0.3s cubic-bezier(0.32,0.72,0,1);
+          max-height: 58%;
           display: flex;
           flex-direction: column;
         }
-        .rcp-chat-drawer.open { transform: translateY(0); }
-        .rcp-chat-handle {
+        .rcp-drawer.open { transform: translateY(0); }
+        .rcp-drawer-handle {
           width: 36px; height: 4px;
-          background: rgba(255,255,255,0.15);
+          background: rgba(255,255,255,0.12);
           border-radius: 2px;
-          margin: 10px auto 0;
+          margin: 12px auto 0;
           flex-shrink: 0;
         }
-        .rcp-chat-head {
+        .rcp-drawer-head {
           display: flex; align-items: center; justify-content: space-between;
-          padding: 10px 16px 10px;
+          padding: 12px 16px;
           border-bottom: 1px solid rgba(255,255,255,0.06);
           flex-shrink: 0;
         }
-        .rcp-chat-title { font-size: 14px; font-weight: 600; color: #fff; }
-        .rcp-chat-close {
-          width: 28px; height: 28px; border-radius: 50%;
-          background: rgba(255,255,255,0.08);
-          border: none; cursor: pointer; color: rgba(255,255,255,0.7);
+        .rcp-drawer-title {
+          font-size: 14px;
+          font-weight: 700;
+          color: #fff;
+          font-family: 'Syne', sans-serif;
+        }
+        .rcp-drawer-close {
+          width: 30px; height: 30px;
+          border-radius: 50%;
+          background: rgba(255,255,255,0.07);
+          border: none;
+          cursor: pointer;
+          color: rgba(255,255,255,0.6);
           display: flex; align-items: center; justify-content: center;
         }
-        .rcp-chat-body {
+        .rcp-drawer-body {
           flex: 1;
           overflow-y: auto;
-          padding: 10px 14px;
+          padding: 12px 16px;
           display: flex;
           flex-direction: column;
-          gap: 8px;
+          gap: 10px;
           overscroll-behavior: contain;
         }
-        .rcp-chat-empty {
+        .rcp-drawer-empty {
           text-align: center;
           font-size: 13px;
-          color: rgba(255,255,255,0.25);
-          padding: 24px 0;
+          color: rgba(255,255,255,0.2);
+          padding: 20px 0;
         }
         .rcp-bubble {
-          max-width: 78%;
-          padding: 8px 12px;
-          border-radius: 16px;
+          max-width: 80%;
+          padding: 9px 13px;
+          border-radius: 14px;
           font-size: 13px;
-          line-height: 1.45;
+          line-height: 1.5;
           color: #fff;
         }
-        .rcp-bubble.mine    { align-self: flex-end; background: #6d28d9; border-bottom-right-radius: 4px; }
-        .rcp-bubble.theirs  { align-self: flex-start; background: #1e1e28; border: 1px solid rgba(255,255,255,0.06); border-bottom-left-radius: 4px; }
-        .rcp-bubble-sender  { font-size: 10px; opacity: 0.55; margin-bottom: 3px; font-weight: 500; }
-        .rcp-chat-form {
+        .rcp-bubble.mine   { align-self: flex-end; background: #e5ff00; color: #0a0a0b; border-bottom-right-radius: 4px; }
+        .rcp-bubble.theirs { align-self: flex-start; background: #1a1a22; border: 1px solid rgba(255,255,255,0.06); border-bottom-left-radius: 4px; }
+        .rcp-bubble-name { font-size: 10px; opacity: 0.55; margin-bottom: 3px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+        .rcp-drawer-form {
           display: flex; gap: 8px;
           padding: 10px 14px max(env(safe-area-inset-bottom), 14px);
           border-top: 1px solid rgba(255,255,255,0.06);
           flex-shrink: 0;
         }
-        .rcp-chat-input {
+        .rcp-drawer-input {
           flex: 1;
           background: rgba(255,255,255,0.07);
           border: 1px solid rgba(255,255,255,0.1);
-          border-radius: 22px;
-          padding: 9px 14px;
+          border-radius: 12px;
+          padding: 10px 14px;
           font-size: 13px;
           color: #fff;
           outline: none;
-          font-family: inherit;
+          font-family: 'DM Sans', sans-serif;
         }
-        .rcp-chat-input::placeholder { color: rgba(255,255,255,0.25); }
-        .rcp-chat-input:focus { border-color: rgba(167,139,250,0.4); }
-        .rcp-chat-send {
-          width: 38px; height: 38px; flex-shrink: 0;
-          border-radius: 50%;
-          background: #6d28d9;
-          border: none; cursor: pointer;
+        .rcp-drawer-input::placeholder { color: rgba(255,255,255,0.25); }
+        .rcp-drawer-input:focus { border-color: rgba(229,255,0,0.35); }
+        .rcp-drawer-send {
+          width: 40px; height: 40px;
+          border-radius: 12px;
+          background: #e5ff00;
+          border: none;
+          cursor: pointer;
           display: flex; align-items: center; justify-content: center;
-          color: #fff;
+          color: #0a0a0b;
+          flex-shrink: 0;
           align-self: flex-end;
-          transition: background 0.15s, transform 0.1s;
+          transition: transform 0.1s;
         }
-        .rcp-chat-send:disabled { background: #2a2a3a; }
-        .rcp-chat-send:not(:disabled):active { transform: scale(0.9); }
+        .rcp-drawer-send:disabled { background: #1a1a22; color: #444; }
+        .rcp-drawer-send:active { transform: scale(0.9); }
 
-        /* ── Report / Block sheets ── */
+        /* ─── TOAST ─── */
+        .rcp-toast {
+          position: absolute;
+          top: 70px; left: 50%;
+          transform: translateX(-50%);
+          z-index: 100;
+          background: rgba(10,10,12,0.9);
+          backdrop-filter: blur(16px);
+          border: 1px solid rgba(255,255,255,0.1);
+          border-radius: 100px;
+          padding: 8px 18px;
+          font-size: 12px;
+          font-weight: 500;
+          color: rgba(255,255,255,0.9);
+          white-space: nowrap;
+          pointer-events: none;
+          animation: rcp-toast-in 0.2s ease;
+        }
+        @keyframes rcp-toast-in { from{opacity:0;transform:translateX(-50%) translateY(6px)} to{opacity:1;transform:translateX(-50%) translateY(0)} }
+
+        /* ─── BOTTOM SHEET ─── */
         .rcp-sheet-backdrop {
           position: absolute; inset: 0;
-          z-index: 70;
-          background: rgba(0,0,0,0.6);
+          z-index: 90;
+          background: rgba(0,0,0,0.65);
           display: flex; align-items: flex-end;
           animation: rcp-fade-in 0.15s ease;
         }
+        @keyframes rcp-fade-in { from{opacity:0} to{opacity:1} }
         .rcp-sheet {
-          background: #141420;
+          background: #12121a;
           border-radius: 20px 20px 0 0;
           border-top: 1px solid rgba(255,255,255,0.08);
           padding: 0 20px max(env(safe-area-inset-bottom), 28px);
           width: 100%;
-          animation: rcp-slide-up 0.22s cubic-bezier(0.32, 0.72, 0, 1);
+          animation: rcp-slide-up 0.22s cubic-bezier(0.32,0.72,0,1);
         }
-        .rcp-sheet-handle {
-          width: 36px; height: 4px;
-          background: rgba(255,255,255,0.15);
-          border-radius: 2px;
-          margin: 10px auto 18px;
-        }
-        .rcp-sheet-eyebrow { font-size: 11px; font-weight: 600; color: rgba(255,255,255,0.35); letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 4px; }
-        .rcp-sheet-name { font-size: 18px; font-weight: 700; color: #fff; margin-bottom: 16px; }
-        .rcp-sheet-copy { font-size: 13px; color: rgba(255,255,255,0.45); margin-bottom: 16px; line-height: 1.5; }
-        .rcp-chips {
-          display: flex; flex-wrap: wrap; gap: 8px;
-          margin-bottom: 14px;
-        }
+        .rcp-sheet-handle { width: 36px; height: 4px; background: rgba(255,255,255,0.12); border-radius: 2px; margin: 12px auto 18px; }
+        .rcp-sheet-eyebrow { font-size: 11px; font-weight: 700; color: rgba(255,255,255,0.3); letter-spacing: 1.2px; text-transform: uppercase; margin-bottom: 4px; font-family: 'Syne', sans-serif; }
+        .rcp-sheet-name { font-size: 20px; font-weight: 800; color: #fff; margin-bottom: 18px; font-family: 'Syne', sans-serif; }
+        .rcp-sheet-body { font-size: 13px; color: rgba(255,255,255,0.4); margin-bottom: 18px; line-height: 1.6; }
+        .rcp-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
         .rcp-chip {
-          padding: 7px 14px;
-          border-radius: 20px;
+          padding: 8px 16px;
+          border-radius: 100px;
           font-size: 12px;
-          font-weight: 500;
-          background: rgba(255,255,255,0.06);
-          border: 1px solid rgba(255,255,255,0.1);
-          color: rgba(255,255,255,0.6);
+          font-weight: 600;
+          background: rgba(255,255,255,0.05);
+          border: 1px solid rgba(255,255,255,0.08);
+          color: rgba(255,255,255,0.5);
           cursor: pointer;
           transition: all 0.15s;
         }
-        .rcp-chip.active { background: rgba(167,139,250,0.2); border-color: rgba(167,139,250,0.5); color: #c4b5fd; }
+        .rcp-chip.active { background: rgba(229,255,0,0.12); border-color: rgba(229,255,0,0.35); color: #e5ff00; }
         .rcp-sheet-textarea {
           width: 100%;
-          background: rgba(255,255,255,0.05);
+          background: rgba(255,255,255,0.04);
           border: 1px solid rgba(255,255,255,0.08);
-          border-radius: 12px;
-          padding: 11px 13px;
+          border-radius: 14px;
+          padding: 12px 14px;
           font-size: 13px;
           color: #fff;
-          min-height: 72px;
+          min-height: 76px;
           resize: none;
           outline: none;
-          font-family: inherit;
-          margin-bottom: 14px;
+          font-family: 'DM Sans', sans-serif;
+          margin-bottom: 16px;
           line-height: 1.5;
           box-sizing: border-box;
         }
         .rcp-sheet-textarea::placeholder { color: rgba(255,255,255,0.2); }
-        .rcp-sheet-textarea:focus { border-color: rgba(167,139,250,0.35); }
+        .rcp-sheet-textarea:focus { border-color: rgba(229,255,0,0.3); }
         .rcp-sheet-btn {
           width: 100%;
-          padding: 14px;
+          padding: 15px;
           border-radius: 14px;
           border: none;
           font-size: 15px;
-          font-weight: 600;
+          font-weight: 700;
           cursor: pointer;
-          font-family: inherit;
-          transition: opacity 0.15s;
+          font-family: 'Syne', sans-serif;
+          transition: opacity 0.15s, transform 0.1s;
+          letter-spacing: 0.2px;
         }
         .rcp-sheet-btn:disabled { opacity: 0.5; }
-        .rcp-sheet-btn.primary { background: #6d28d9; color: #fff; }
+        .rcp-sheet-btn:active { transform: scale(0.98); }
+        .rcp-sheet-btn.primary { background: #e5ff00; color: #0a0a0b; }
         .rcp-sheet-btn.danger  { background: #dc2626; color: #fff; }
-        .rcp-sheet-close-row {
-          display: flex; justify-content: flex-end;
-          margin-bottom: 2px;
-        }
+        .rcp-sheet-close-row { display: flex; justify-content: flex-end; margin-bottom: 4px; }
         .rcp-sheet-x {
           background: rgba(255,255,255,0.07);
           border: none; border-radius: 50%;
-          width: 30px; height: 30px;
+          width: 32px; height: 32px;
           display: flex; align-items: center; justify-content: center;
           color: rgba(255,255,255,0.5);
           cursor: pointer;
@@ -834,43 +992,42 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
 
       <div className="rcp-root">
 
-        {/* ── Header ── */}
-        <header className="rcp-header">
-          <div className="rcp-logo" onClick={() => navigate("/app")}>
-            <span className="rcp-logo-dot" />
+        {/* ─── TOP BAR ─── */}
+        <header className="rcp-topbar">
+          <div className="rcp-wordmark" onClick={() => navigate("/app")}>
             LPU TV
+            <span className="rcp-wordmark-badge">Beta</span>
           </div>
-          <div className="rcp-header-right">
-            <div className="rcp-status-badge">
-              <span className={`rcp-status-dot ${isInCall ? "live" : isMatching || zegoConnecting ? "searching" : ""}`} />
-              {isInCall ? "Connected" : isMatching || zegoConnecting ? "Searching" : "Ready"}
+          <div className="rcp-topbar-right">
+            <div className="rcp-status-chip">
+              <span className={`rcp-status-dot ${isInCall ? "live" : (isMatching || zegoConnecting) ? "searching" : ""}`} />
+              {isInCall ? "Connected" : (isMatching || zegoConnecting) ? "Searching…" : "Ready"}
             </div>
+            {match && !zegoConnecting && (
+              <button className="rcp-report-btn" onClick={() => setShowReportSheet(true)} title="Report">
+                <Flag size={15} />
+              </button>
+            )}
           </div>
         </header>
 
-        {/* ── Toast ── */}
-        {(actionMessage && match) ? (
-          <div className="rcp-toast">{actionMessage}</div>
-        ) : null}
-        {connectionIssue && !match ? (
-          <div className="rcp-toast">{connectionIssue}</div>
-        ) : null}
+        {/* ─── TOAST ─── */}
+        {actionMessage && match && <div className="rcp-toast">{actionMessage}</div>}
+        {connectionIssue && !match && <div className="rcp-toast">{connectionIssue}</div>}
 
-        {/* ── Two-block vertical video stack ── */}
-        <div className="rcp-video-stack">
-
-          {/* Remote (top, larger) */}
-          <div className="rcp-block rcp-block-remote">
-            {zegoRenderMatch ? (
-              <div style={{
-                position: "absolute",
-                inset: 0,
-                width: "100%",
-                height: "100%",
-                opacity: zegoConnecting ? 0 : 1,
-                transition: "opacity 0.35s ease",
-                zIndex: 5,
-              }}>
+        {/* ─── MAIN PANELS ─── */}
+        <div
+          className="rcp-main"
+          style={swipeStyle}
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
+        >
+          {/* REMOTE panel */}
+          <div className="rcp-panel rcp-panel-remote">
+            {/* Zego video */}
+            {zegoRenderMatch && (
+              <div style={{ position:"absolute", inset:0, opacity: zegoConnecting ? 0 : 1, transition:"opacity 0.4s ease", zIndex:5 }}>
                 <VideoRoom
                   key={zegoRenderMatch.roomId}
                   appId={zegoConfig.appId}
@@ -887,191 +1044,200 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
                   }}
                 />
               </div>
-            ) : null}
+            )}
 
-            {/* Placeholder when no remote */}
+            {/* Idle / connecting placeholder */}
             {(!zegoRenderMatch || zegoConnecting) && (
-              <div className="rcp-block-bg">
-                {isMatching || (zegoConnecting && !match) ? (
+              <div className="rcp-panel-idle">
+                {(isMatching || zegoConnecting) ? (
                   <>
-                    <div className="rcp-pulse-wrap">
-                      <div className="rcp-pulse-ring" />
-                      <div className="rcp-pulse-ring" />
-                      <div className="rcp-pulse-icon">
-                        <svg width="18" height="18" fill="none" stroke="#a78bfa" strokeWidth="1.8" viewBox="0 0 24 24">
-                          <circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/>
-                        </svg>
-                      </div>
-                    </div>
-                    <p className="rcp-idle-text">Looking for someone…</p>
-                  </>
-                ) : match && (zegoConnecting || roomRevealPending) ? (
-                  <>
-                    <div className="rcp-pulse-wrap">
-                      <div className="rcp-pulse-ring" />
-                      <div className="rcp-pulse-ring" />
-                      <div className="rcp-pulse-icon">
-                        <svg width="18" height="18" fill="none" stroke="#4ade80" strokeWidth="1.8" viewBox="0 0 24 24">
-                          <circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/>
-                        </svg>
-                      </div>
-                    </div>
-                    <p className="rcp-idle-text">{upcomingPartnerName} is connecting…</p>
+                    <div className="rcp-spinner" />
+                    <p className="rcp-idle-label">
+                      {match && zegoConnecting ? `${upcomingPartnerName} is connecting…` : "Looking for someone…"}
+                    </p>
                   </>
                 ) : (
                   <>
-                    <svg width="32" height="32" fill="none" stroke="rgba(255,255,255,0.15)" strokeWidth="1.5" viewBox="0 0 24 24">
-                      <circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/>
-                    </svg>
-                    <p className="rcp-idle-text">
-                      {connectionIssue ? "Connection failed" : "Tap Start to meet someone"}
-                    </p>
-                    {!connectionIssue && <p className="rcp-idle-sub">Video chat with LPU students</p>}
+                    <div className="rcp-panel-idle-icon">
+                      <svg width="22" height="22" fill="none" stroke="rgba(255,255,255,0.25)" strokeWidth="1.5" viewBox="0 0 24 24">
+                        <circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/>
+                      </svg>
+                    </div>
+                    <p className="rcp-idle-label">{connectionIssue ? "Connection lost" : "Tap Start"}</p>
+                    {!connectionIssue && <p className="rcp-idle-sub">Meet LPU students via video</p>}
                   </>
                 )}
               </div>
             )}
 
-            {/* Overlay: live badge + partner name + timer */}
+            {/* Live overlay */}
             {match && !zegoConnecting && (
-              <div className="rcp-remote-overlay">
-                <div className="rcp-live-pill"><span className="rcp-live-dot" />Live</div>
-                <span className="rcp-partner-name">{match.partner.fullName.split(" ")[0]}</span>
-                <span className="rcp-timer">{liveTimer}</span>
+              <div className="rcp-remote-label">
+                <div className="rcp-live-pill"><span className="rcp-live-blink" />Live</div>
+                <div className="rcp-partner-chip">{match.partner.fullName.split(" ")[0]}</div>
+                <div className="rcp-timer-chip">{liveTimer}</div>
               </div>
             )}
 
-            {/* Friend / Report / Block icon buttons */}
+            {/* Action buttons */}
             {match && !zegoConnecting && (
-              <div className="rcp-block-actions">
+              <div className="rcp-panel-actions">
                 <button
-                  className="rcp-icon-btn friend"
+                  className="rcp-action-btn friend"
                   title={getFriendLabel()}
                   onClick={() => void handleFriendAction()}
                   disabled={Boolean(actionBusy) || relationship?.isBlocked || relationship?.isBlockedByOther || relationship?.isFriend || relationship?.outgoingRequestPending}
                 >
                   <UserPlus size={16} />
                 </button>
-                <button className="rcp-icon-btn report" title="Report" onClick={() => setShowReportSheet(true)} disabled={Boolean(actionBusy)}>
-                  <Flag size={16} />
-                </button>
-                <button className="rcp-icon-btn block" title="Block" onClick={() => setShowBlockSheet(true)} disabled={Boolean(actionBusy)}>
+                <button className="rcp-action-btn block" title="Block" onClick={() => setShowBlockSheet(true)} disabled={Boolean(actionBusy)}>
                   <ShieldBan size={16} />
                 </button>
               </div>
             )}
 
-            {/* Floating reactions layer */}
-            <div className="rcp-reactions-layer">
+            {/* Floating reactions */}
+            <div className="rcp-float-layer">
               {floatingReactions.map((r) => (
                 <span key={r.id} className={`rcp-float-emoji ${r.own ? "own" : ""}`}>{r.emoji}</span>
               ))}
             </div>
+
+            {/* Mobile swipe visual hints */}
+            <div className={`rcp-swipe-hint ${swipeDir === "right" && Math.abs(swipeDelta) > 40 ? "show" : ""}`}>
+              <div className="rcp-swipe-hint-label next">→ Next</div>
+            </div>
+            <div className={`rcp-swipe-hint ${swipeDir === "left" && Math.abs(swipeDelta) > 40 ? "show" : ""}`}>
+              <div className="rcp-swipe-hint-label stop">← Stop</div>
+            </div>
           </div>
 
-          {/* Local (bottom, smaller) */}
-          <div className="rcp-block rcp-block-local">
-            <video ref={localVideoRef} autoPlay muted playsInline style={{ opacity: match ? 0.6 : 1 }} />
-            {(!match && !isMatching && !hasStarted) && (
-              <div className="rcp-block-bg" style={{ position: "absolute", inset: 0, background: "transparent" }}>
-                <svg width="24" height="24" fill="none" stroke="rgba(255,255,255,0.2)" strokeWidth="1.5" viewBox="0 0 24 24">
-                  <path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/>
-                </svg>
-                <p className="rcp-idle-sub" style={{ fontSize: 11 }}>Your camera</p>
+          {/* LOCAL panel */}
+          <div className="rcp-panel rcp-panel-local">
+            <video ref={localVideoRef} autoPlay muted playsInline style={{ opacity: match ? 0.7 : 1 }} />
+            {!match && !isMatching && !hasStarted && (
+              <div className="rcp-panel-idle" style={{ background: "transparent" }}>
+                <div className="rcp-panel-idle-icon">
+                  <svg width="20" height="20" fill="none" stroke="rgba(255,255,255,0.2)" strokeWidth="1.5" viewBox="0 0 24 24">
+                    <path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/>
+                  </svg>
+                </div>
+                <p className="rcp-idle-label">Your camera</p>
               </div>
             )}
-            <span className="rcp-local-label">You</span>
+            <span className="rcp-you-label">You</span>
           </div>
         </div>
 
-        {/* ── Bottom controls ── */}
-        <div className="rcp-controls">
+        {/* ─── BOTTOM CONTROLS ─── */}
+        <div className="rcp-bottom">
           {showReactionTray && match && (
-            <div className="rcp-reaction-tray">
+            <div className="rcp-reaction-row">
               {QUICK_REACTIONS.map((emoji) => (
-                <button key={emoji} className="rcp-emoji-btn" onClick={() => triggerReaction(emoji)}>{emoji}</button>
+                <button key={emoji} className="rcp-emoji-pill" onClick={() => triggerReaction(emoji)}>{emoji}</button>
               ))}
             </div>
           )}
 
-          <div className="rcp-btn-row">
-            {!hasStarted ? (
-              <button className="rcp-btn rcp-btn-start" onClick={startMatching} disabled={isMatching}>
-                <div className="rcp-btn-circle"><Play size={22} fill="#fff" color="#fff" /></div>
-                <span className="rcp-btn-label">Start</span>
-              </button>
-            ) : (
-              <>
-                <button className="rcp-btn rcp-btn-stop" onClick={stopMatching}>
-                  <div className="rcp-btn-circle"><PhoneOff size={20} color="#fff" /></div>
-                  <span className="rcp-btn-label">Stop</span>
-                </button>
+          {/* Mobile swipe guide */}
+          {hasStarted && (
+            <div className="rcp-swipe-guide">
+              <span className="rcp-swipe-tip"><span>←</span> Stop</span>
+              <span className="rcp-swipe-tip"><span>→</span> Next</span>
+            </div>
+          )}
 
-                <button
-                  className="rcp-btn rcp-btn-react"
-                  onClick={() => setShowReactionTray((p) => !p)}
-                  disabled={!match}
-                >
-                  <div className="rcp-btn-circle"><SmilePlus size={20} color="rgba(255,255,255,0.8)" /></div>
-                  <span className="rcp-btn-label">React</span>
+          <div className="rcp-controls-row">
+            <div className="rcp-btn-group">
+              {!hasStarted ? (
+                <button className="rcp-ctrl-btn" onClick={startMatching} disabled={isMatching}>
+                  <div className="rcp-ctrl-icon icon-start"><Play size={22} fill="#0a0a0b" color="#0a0a0b" /></div>
+                  <span className="rcp-ctrl-label">Start</span>
                 </button>
+              ) : (
+                <>
+                  <button className="rcp-ctrl-btn" onClick={stopMatching}>
+                    <div className="rcp-ctrl-icon icon-stop"><PhoneOff size={20} color="#fff" /></div>
+                    <span className="rcp-ctrl-label">Stop</span>
+                  </button>
 
-                <button
-                  className={`rcp-btn rcp-btn-chat ${showLiveChat ? "active" : ""}`}
-                  onClick={() => setShowLiveChat((p) => !p)}
-                  disabled={!match}
-                >
-                  <div className="rcp-btn-circle"><MessageCircle size={20} color={showLiveChat ? "#a78bfa" : "rgba(255,255,255,0.8)"} /></div>
-                  <span className="rcp-btn-label">Chat</span>
-                </button>
+                  <button className="rcp-ctrl-btn" onClick={() => setShowReactionTray((p) => !p)} disabled={!match}>
+                    <div className="rcp-ctrl-icon icon-react"><SmilePlus size={20} color="rgba(255,255,255,0.75)" /></div>
+                    <span className="rcp-ctrl-label">React</span>
+                  </button>
 
-                <button
-                  className="rcp-btn rcp-btn-next"
-                  onClick={nextMatch}
-                  disabled={!match && !isMatching}
-                >
-                  <div className="rcp-btn-circle"><SkipForward size={20} color="rgba(255,255,255,0.8)" /></div>
-                  <span className="rcp-btn-label">Next</span>
+                  {/* Chat button - shows drawer on mobile, no-op on desktop (inline input used) */}
+                  <button
+                    className="rcp-ctrl-btn"
+                    onClick={() => setShowLiveChat((p) => !p)}
+                    disabled={!match}
+                    style={{ display: undefined }} // always show for mobile
+                  >
+                    <div className={`rcp-ctrl-icon icon-chat ${showLiveChat ? "active" : ""}`}>
+                      <MessageCircle size={20} color={showLiveChat ? "#e5ff00" : "rgba(255,255,255,0.75)"} />
+                    </div>
+                    <span className="rcp-ctrl-label">Chat</span>
+                  </button>
+
+                  <button className="rcp-ctrl-btn" onClick={nextMatch} disabled={!match && !isMatching}>
+                    <div className="rcp-ctrl-icon icon-next"><SkipForward size={20} color="rgba(255,255,255,0.75)" /></div>
+                    <span className="rcp-ctrl-label">Next</span>
+                  </button>
+                </>
+              )}
+            </div>
+
+            {/* Desktop inline chat */}
+            {match && !zegoConnecting && (
+              <form className="rcp-chat-inline" onSubmit={sendLiveChatMessage}>
+                <input
+                  className="rcp-chat-inline-input"
+                  value={liveChatInput}
+                  onChange={(e) => setLiveChatInput(e.target.value)}
+                  placeholder="Type your message…"
+                />
+                <button className="rcp-chat-inline-send" type="submit" disabled={!liveChatInput.trim()}>
+                  <Send size={16} />
                 </button>
-              </>
+              </form>
             )}
           </div>
         </div>
 
-        {/* ── Live chat drawer ── */}
-        <div className={`rcp-chat-drawer ${showLiveChat ? "open" : ""}`}>
-          <div className="rcp-chat-handle" />
-          <div className="rcp-chat-head">
-            <span className="rcp-chat-title">Live Chat</span>
-            <button className="rcp-chat-close" onClick={() => setShowLiveChat(false)}>
+        {/* ─── MOBILE CHAT DRAWER ─── */}
+        <div className={`rcp-drawer ${showLiveChat ? "open" : ""}`}>
+          <div className="rcp-drawer-handle" />
+          <div className="rcp-drawer-head">
+            <span className="rcp-drawer-title">Live Chat</span>
+            <button className="rcp-drawer-close" onClick={() => setShowLiveChat(false)}>
               <ChevronDown size={16} />
             </button>
           </div>
-          <div className="rcp-chat-body" ref={liveChatBodyRef}>
+          <div className="rcp-drawer-body" ref={liveChatBodyRef}>
             {liveMessages.length === 0 ? (
-              <p className="rcp-chat-empty">Send a quick message without covering the video</p>
+              <p className="rcp-drawer-empty">Messages appear here during the call</p>
             ) : null}
             {liveMessages.map((entry) => (
               <div key={entry.id} className={`rcp-bubble ${entry.senderId === user.id ? "mine" : "theirs"}`}>
-                <p className="rcp-bubble-sender">{entry.senderId === user.id ? "You" : entry.senderName.split(" ")[0]}</p>
+                <p className="rcp-bubble-name">{entry.senderId === user.id ? "You" : entry.senderName.split(" ")[0]}</p>
                 <p>{entry.message}</p>
               </div>
             ))}
           </div>
-          <form className="rcp-chat-form" onSubmit={sendLiveChatMessage}>
+          <form className="rcp-drawer-form" onSubmit={sendLiveChatMessage}>
             <input
-              className="rcp-chat-input"
+              className="rcp-drawer-input"
               value={liveChatInput}
               onChange={(e) => setLiveChatInput(e.target.value)}
               placeholder="Type a message…"
             />
-            <button className="rcp-chat-send" type="submit" disabled={!liveChatInput.trim()}>
+            <button className="rcp-drawer-send" type="submit" disabled={!liveChatInput.trim()}>
               <Send size={15} />
             </button>
           </form>
         </div>
 
-        {/* ── Report sheet ── */}
+        {/* ─── REPORT SHEET ─── */}
         {showReportSheet && match && (
           <div className="rcp-sheet-backdrop" onClick={() => setShowReportSheet(false)}>
             <div className="rcp-sheet" onClick={(e) => e.stopPropagation()}>
@@ -1082,28 +1248,17 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
               <p className="rcp-sheet-eyebrow">Report</p>
               <p className="rcp-sheet-name">{match.partner.fullName}</p>
               <div className="rcp-chips">
-                {["Spam", "Harassment", "Inappropriate behavior", "Fake profile"].map((reason) => (
-                  <span
-                    key={reason}
-                    className={`rcp-chip ${reportReason === reason ? "active" : ""}`}
-                    onClick={() => setReportReason(reason)}
-                  >{reason}</span>
+                {["Spam", "Harassment", "Inappropriate", "Fake profile"].map((reason) => (
+                  <span key={reason} className={`rcp-chip ${reportReason === reason ? "active" : ""}`} onClick={() => setReportReason(reason)}>{reason}</span>
                 ))}
               </div>
-              <textarea
-                className="rcp-sheet-textarea"
-                placeholder="Add context if you want…"
-                value={reportDetails}
-                onChange={(e) => setReportDetails(e.target.value)}
-              />
-              <button className="rcp-sheet-btn primary" onClick={() => void submitReport()} disabled={actionBusy === "report"}>
-                Submit Report
-              </button>
+              <textarea className="rcp-sheet-textarea" placeholder="Add context (optional)…" value={reportDetails} onChange={(e) => setReportDetails(e.target.value)} />
+              <button className="rcp-sheet-btn primary" onClick={() => void submitReport()} disabled={actionBusy === "report"}>Submit Report</button>
             </div>
           </div>
         )}
 
-        {/* ── Block sheet ── */}
+        {/* ─── BLOCK SHEET ─── */}
         {showBlockSheet && match && (
           <div className="rcp-sheet-backdrop" onClick={() => setShowBlockSheet(false)}>
             <div className="rcp-sheet" onClick={(e) => e.stopPropagation()}>
@@ -1113,16 +1268,9 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
               </div>
               <p className="rcp-sheet-eyebrow">Block User</p>
               <p className="rcp-sheet-name">Block {match.partner.fullName.split(" ")[0]}?</p>
-              <p className="rcp-sheet-copy">They'll be removed from this chat and skipped in all future random matches.</p>
-              <textarea
-                className="rcp-sheet-textarea"
-                placeholder="Optional note for yourself"
-                value={blockReason}
-                onChange={(e) => setBlockReason(e.target.value)}
-              />
-              <button className="rcp-sheet-btn danger" onClick={() => void confirmBlock()} disabled={actionBusy === "block"}>
-                Block and Continue
-              </button>
+              <p className="rcp-sheet-body">They'll be removed and skipped in all future random matches.</p>
+              <textarea className="rcp-sheet-textarea" placeholder="Optional note for yourself" value={blockReason} onChange={(e) => setBlockReason(e.target.value)} />
+              <button className="rcp-sheet-btn danger" onClick={() => void confirmBlock()} disabled={actionBusy === "block"}>Block and Continue</button>
             </div>
           </div>
         )}
