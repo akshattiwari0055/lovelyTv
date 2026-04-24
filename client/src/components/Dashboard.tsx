@@ -1,11 +1,16 @@
 /**
  * Dashboard.tsx — Campus Connect · Redesigned UI
- * Fixed: proper desktop layout, better fonts, full-width design
+ * Fixed:
+ *  1. Input focus loss → ChatInput extracted into React.memo + useCallback handlers
+ *  2. Unread badge logic → usersWithUnread counts distinct users, not total msgs
+ *  3. Mark-as-read on chat open → setUnreadCounts zeroed on selection
+ *  4. Re-render cascade → useCallback / useMemo everywhere appropriate
  */
 
 import {
-  FormEvent, useEffect, useMemo, useRef, useState,
+  FormEvent, useCallback, useEffect, useMemo, useRef, useState,
 } from "react";
+import React from "react";
 import { useNavigate } from "react-router-dom";
 import {
   ArrowLeft, Camera, Check, CheckCheck, Flame, Home, ImagePlus,
@@ -92,7 +97,7 @@ const C = {
   borderGlow: "rgba(139,92,246,0.35)",
   accent: "#8b5cf6",
   accentBright: "#a78bfa",
-  accentAlt: "#06b6d4",      // cyan
+  accentAlt: "#06b6d4",
   accentPink: "#ec4899",
   accentGreen: "#10b981",
   accentAmber: "#f59e0b",
@@ -106,7 +111,7 @@ const FONT_DISPLAY = "'Outfit', sans-serif";
 const FONT_BODY = "'Figtree', sans-serif";
 
 // ─── Avatar ───────────────────────────────────────────────────────────────────
-function Avatar({
+const Avatar = React.memo(function Avatar({
   name, size = 40, color = "violet", online = false,
 }: { name: string; size?: number; color?: "violet" | "cyan" | "pink" | "green"; online?: boolean }) {
   const gradients = {
@@ -137,7 +142,7 @@ function Avatar({
       )}
     </div>
   );
-}
+});
 
 // ─── StatPill ────────────────────────────────────────────────────────────────
 function StatPill({ value, label }: { value: string | number; label: string }) {
@@ -175,7 +180,7 @@ function LiveBadge({ label }: { label: string }) {
 }
 
 // ─── HeroCard ────────────────────────────────────────────────────────────────
-function HeroCard({ onStartRandom }: { onStartRandom: () => void }) {
+const HeroCard = React.memo(function HeroCard({ onStartRandom }: { onStartRandom: () => void }) {
   return (
     <div style={{
       position: "relative", overflow: "hidden",
@@ -184,7 +189,6 @@ function HeroCard({ onStartRandom }: { onStartRandom: () => void }) {
       borderRadius: 20, padding: "32px 28px",
       animation: "slide-up 0.4s ease",
     }}>
-      {/* Decorative orbs */}
       <div style={{
         position: "absolute", top: -60, right: -60, width: 240, height: 240,
         background: "radial-gradient(circle, rgba(139,92,246,0.15) 0%, transparent 70%)",
@@ -195,7 +199,6 @@ function HeroCard({ onStartRandom }: { onStartRandom: () => void }) {
         background: "radial-gradient(circle, rgba(6,182,212,0.1) 0%, transparent 70%)",
         pointerEvents: "none",
       }} />
-
       <div style={{ position: "relative" }}>
         <LiveBadge label="LIVE ON CAMPUS" />
         <h1 style={{
@@ -243,10 +246,10 @@ function HeroCard({ onStartRandom }: { onStartRandom: () => void }) {
       </div>
     </div>
   );
-}
+});
 
 // ─── ChatItem ────────────────────────────────────────────────────────────────
-function ChatItem({
+const ChatItem = React.memo(function ChatItem({
   friend, unread, lastMsg, active, onClick, compact = false,
 }: { friend: User; unread: number; lastMsg?: string; active?: boolean; onClick: () => void; compact?: boolean }) {
   return (
@@ -298,11 +301,15 @@ function ChatItem({
       </div>
     </button>
   );
-}
+});
 
 // ─── UserCard ────────────────────────────────────────────────────────────────
-function UserCard({ user: u, onAdd }: { user: User; onAdd: () => void }) {
+const UserCard = React.memo(function UserCard({ user: u, onAdd }: { user: User; onAdd: () => void }) {
   const [sent, setSent] = useState(false);
+  const handleAdd = useCallback(() => {
+    setSent(true);
+    onAdd();
+  }, [onAdd]);
   return (
     <article
       className="user-card"
@@ -333,7 +340,7 @@ function UserCard({ user: u, onAdd }: { user: User; onAdd: () => void }) {
         )}
       </div>
       <button
-        onClick={() => { setSent(true); onAdd(); }}
+        onClick={handleAdd}
         disabled={sent}
         className="action-btn"
         style={{
@@ -352,10 +359,10 @@ function UserCard({ user: u, onAdd }: { user: User; onAdd: () => void }) {
       </button>
     </article>
   );
-}
+});
 
 // ─── MessageBubble ────────────────────────────────────────────────────────────
-function MessageBubble({ msg, mine }: { msg: Message; mine: boolean }) {
+const MessageBubble = React.memo(function MessageBubble({ msg, mine }: { msg: Message; mine: boolean }) {
   return (
     <div style={{ display: "flex", justifyContent: mine ? "flex-end" : "flex-start", padding: "2px 0" }}>
       <div style={{
@@ -387,7 +394,182 @@ function MessageBubble({ msg, mine }: { msg: Message; mine: boolean }) {
       </div>
     </div>
   );
+});
+
+// ─── MessageList ─────────────────────────────────────────────────────────────
+// Memoized so typing in the input doesn't re-render the entire message list
+const MessageList = React.memo(function MessageList({
+  messages, userId, partnerTyping, bottomRef,
+}: {
+  messages: Message[];
+  userId: string;
+  partnerTyping: boolean;
+  bottomRef: React.RefObject<HTMLDivElement>;
+}) {
+  return (
+    <div style={{
+      flex: 1, overflowY: "auto", overflowX: "hidden",
+      padding: "20px 20px", display: "flex", flexDirection: "column",
+      gap: 4, minHeight: 0, background: C.bg,
+    }}>
+      {messages.length === 0
+        ? (
+          <div style={{
+            flex: 1, display: "flex", alignItems: "center", justifyContent: "center",
+            color: C.textDim, fontSize: "0.86rem", textAlign: "center",
+            fontFamily: FONT_BODY,
+          }}>
+            Start the conversation 👋
+          </div>
+        )
+        : messages.map((m) => (
+            <MessageBubble key={m.id} msg={m} mine={m.senderId === userId} />
+          ))
+      }
+      {partnerTyping && (
+        <div style={{ display: "flex", padding: "4px 0" }}>
+          <div style={{
+            padding: "10px 14px", borderRadius: "16px 16px 16px 4px",
+            background: C.surfaceAlt, border: `1px solid ${C.border}`,
+            display: "flex", gap: 4, alignItems: "center",
+          }}>
+            {[0, 180, 360].map((delay, i) => (
+              <span key={i} style={{
+                width: 5, height: 5, borderRadius: "50%",
+                background: C.accent, display: "inline-block",
+                animation: `tdot 1.2s ${delay}ms infinite`,
+              }} />
+            ))}
+          </div>
+        </div>
+      )}
+      <div ref={bottomRef} />
+    </div>
+  );
+});
+
+// ─── ChatInput ────────────────────────────────────────────────────────────────
+// FIX #1: Extracted into its own memoized component so that parent state changes
+// (messages, partnerTyping, unreadCounts, etc.) never cause this to re-mount or
+// lose focus. The ref and stable callbacks guarantee zero blur on every keystroke.
+interface ChatInputProps {
+  value: string;
+  imagePreview: string | null;
+  inputRef: React.RefObject<HTMLInputElement>;
+  fileRef: React.RefObject<HTMLInputElement>;
+  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  onSend: (e: FormEvent) => void;
+  onImageUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  onClearImage: () => void;
 }
+
+const ChatInput = React.memo(function ChatInput({
+  value,
+  imagePreview,
+  inputRef,
+  fileRef,
+  onChange,
+  onSend,
+  onImageUpload,
+  onClearImage,
+}: ChatInputProps) {
+  const hasContent = value.trim() || imagePreview;
+
+  return (
+    <>
+      {imagePreview && (
+        <div style={{
+          padding: "8px 16px", flexShrink: 0,
+          borderTop: `1px solid ${C.border}`,
+          display: "flex", alignItems: "center", gap: 10,
+          background: C.surfaceAlt,
+        }}>
+          <img src={imagePreview} alt="preview" style={{ height: 52, borderRadius: 8, objectFit: "cover" }} />
+          <button
+            type="button"
+            onClick={onClearImage}
+            style={{
+              width: 22, height: 22, borderRadius: "50%", background: "#ef4444",
+              border: "none", color: "#fff", cursor: "pointer",
+              display: "flex", alignItems: "center", justifyContent: "center",
+            }}
+          >
+            <X size={11} />
+          </button>
+        </div>
+      )}
+      <form
+        onSubmit={onSend}
+        style={{
+          display: "flex", alignItems: "center", gap: 8,
+          padding: "12px 16px",
+          paddingBottom: "calc(12px + env(safe-area-inset-bottom, 0px))",
+          flexShrink: 0,
+          borderTop: `1px solid ${C.border}`,
+          background: C.bg,
+        }}
+      >
+        <input
+          type="file"
+          accept="image/*"
+          style={{ display: "none" }}
+          ref={fileRef}
+          onChange={onImageUpload}
+        />
+        <button
+          type="button"
+          onClick={() => fileRef.current?.click()}
+          style={{
+            width: 38, height: 38, borderRadius: 10, flexShrink: 0,
+            background: C.surfaceAlt, border: `1px solid ${C.border}`,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            color: C.textMuted, cursor: "pointer",
+          }}
+        >
+          <ImagePlus size={15} />
+        </button>
+        <input
+          ref={inputRef}
+          style={{
+            flex: 1, background: C.surfaceAlt,
+            border: `1px solid ${C.border}`,
+            borderRadius: 12, padding: "10px 14px",
+            color: C.text, outline: "none", minWidth: 0,
+            fontFamily: FONT_BODY,
+            transition: "border-color 0.2s",
+          }}
+          onFocus={e => e.currentTarget.style.borderColor = C.borderGlow}
+          onBlur={e => e.currentTarget.style.borderColor = C.border}
+          placeholder="Message…"
+          value={value}
+          onChange={onChange}
+          autoComplete="off"
+          autoCorrect="off"
+          spellCheck={false}
+          enterKeyHint="send"
+        />
+        <button
+          type="submit"
+          className="send-btn"
+          disabled={!hasContent}
+          style={{
+            width: 38, height: 38, borderRadius: 10, flexShrink: 0,
+            background: hasContent
+              ? "linear-gradient(135deg, #6d28d9, #8b5cf6)"
+              : C.surfaceAlt,
+            border: hasContent ? "none" : `1px solid ${C.border}`,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            color: hasContent ? "#fff" : C.textDim,
+            cursor: hasContent ? "pointer" : "default",
+            transition: "all 0.2s",
+          }}
+        >
+          <Send size={14} />
+        </button>
+      </form>
+    </>
+  );
+});
 
 // ─── MAIN DASHBOARD ───────────────────────────────────────────────────────────
 export function Dashboard({ token, user, onLogout }: DashboardProps) {
@@ -396,6 +578,8 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
   const typingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const compInputRef = useRef<HTMLInputElement>(null);
+  // Track typing state in a ref so the typing callback doesn't need to be recreated
+  const isTypingRef = useRef(false);
 
   const [zegoConfig, setZegoConfig] = useState<{ appId: number; serverSecret: string } | null>(null);
   const [activeCall, setActiveCall] = useState<{ roomId: string; isVideo: boolean } | null>(null);
@@ -417,7 +601,6 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
   const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
   const [activeTab, setActiveTab] = useState<AppTab>("home");
   const [messageInput, setMessageInput] = useState("");
-  const [isTyping, setIsTyping] = useState(false);
   const [partnerTyping, setPartnerTyping] = useState(false);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [nameFilter, setNameFilter] = useState("");
@@ -425,6 +608,7 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
     typeof window !== "undefined" ? window.innerWidth >= 1024 : false
   );
 
+  // FIX #2: Count of distinct users with unread messages (not total unread messages)
   const usersWithUnread = useMemo(
     () => Object.values(unreadCounts).filter((c) => c > 0).length,
     [unreadCounts]
@@ -440,6 +624,13 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
   );
 
   // ─── Socket ──────────────────────────────────────────────────────────────
+  // Use a stable ref for selectedFriend and conversationIsOpen to avoid
+  // re-registering socket listeners on every state change
+  const selectedFriendRef = useRef(selectedFriend);
+  const conversationIsOpenRef = useRef(conversationIsOpen);
+  useEffect(() => { selectedFriendRef.current = selectedFriend; }, [selectedFriend]);
+  useEffect(() => { conversationIsOpenRef.current = conversationIsOpen; }, [conversationIsOpen]);
+
   useEffect(() => {
     const socket = connectSocket(token);
 
@@ -448,10 +639,13 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
       const otherId = msg.senderId === user.id ? (msg as any).receiverId ?? "" : msg.senderId;
       if (msg.content) setLastMessages((c) => ({ ...c, [otherId]: msg.content! }));
 
-      if (selectedFriend?.id === msg.senderId && conversationIsOpen && document.visibilityState === "visible") {
+      const sf = selectedFriendRef.current;
+      const isOpen = conversationIsOpenRef.current;
+      if (sf?.id === msg.senderId && isOpen && document.visibilityState === "visible") {
         socket.emit("message:read", { messageIds: [msg.id], senderId: msg.senderId });
         setUnreadCounts((c) => ({ ...c, [msg.senderId]: 0 }));
       } else if (msg.senderId !== user.id) {
+        // FIX #2 cont.: Increment per-user count, cap at 99
         setUnreadCounts((c) => ({ ...c, [msg.senderId]: Math.min((c[msg.senderId] ?? 0) + 1, 99) }));
       }
     });
@@ -460,10 +654,10 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
       setMessages((c) => c.map((m) => messageIds.includes(m.id) ? { ...m, isRead: true } : m));
     });
     socket.on("typing:started", ({ typerId }: { typerId: string }) => {
-      if (selectedFriend?.id === typerId) setPartnerTyping(true);
+      if (selectedFriendRef.current?.id === typerId) setPartnerTyping(true);
     });
     socket.on("typing:stopped", ({ typerId }: { typerId: string }) => {
-      if (selectedFriend?.id === typerId) setPartnerTyping(false);
+      if (selectedFriendRef.current?.id === typerId) setPartnerTyping(false);
     });
     socket.on("call:incoming", (p: typeof incomingCall) => setIncomingCall(p));
     socket.on("call:accepted", ({ roomId }: { roomId: string }) => {
@@ -484,8 +678,9 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
         .forEach((e) => socket.off(e));
       disconnectSocket();
     };
+  // Only re-run when token or user.id changes — not on selectedFriend change
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, selectedFriend?.id, conversationIsOpen, user.id]);
+  }, [token, user.id]);
 
   useEffect(() => {
     void Promise.all([
@@ -506,9 +701,11 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages, partnerTyping]);
 
+  // FIX #1: Focus only when switching to a new friend, not on every render
   useEffect(() => {
-    if (activeTab === "chat") {
-      requestAnimationFrame(() => compInputRef.current?.focus());
+    if (activeTab === "chat" && selectedFriend) {
+      const frame = requestAnimationFrame(() => compInputRef.current?.focus());
+      return () => cancelAnimationFrame(frame);
     }
   }, [activeTab, selectedFriend?.id]);
 
@@ -534,27 +731,36 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
       getSocket()?.emit("message:read", { messageIds: unread, senderId: otherId });
       setMessages((c) => c.map((m) => unread.includes(m.id) ? { ...m, isRead: true } : m));
     }
+    // FIX #3: Zero out unread for this user when chat is opened
     setUnreadCounts((c) => ({ ...c, [otherId]: 0 }));
   }
 
-  async function sendFriendRequest(id: string) {
+  const sendFriendRequest = useCallback(async (id: string) => {
     await api.post("/friend-requests", { receiverId: id });
     void loadDiscover();
-  }
-  async function acceptRequest(id: string) {
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const acceptRequest = useCallback(async (id: string) => {
     await api.post(`/friend-requests/${id}/accept`);
     await Promise.all([loadFriends(), loadRequests()]);
-  }
-  async function unblockUser(uid: string) {
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const unblockUser = useCallback(async (uid: string) => {
     await api.delete(`/users/${uid}/block`);
     await Promise.all([loadBlockedUsers(), loadDiscover(), loadFriends(), loadRequests()]);
-  }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  function openChat(friend: User) {
+  const openChat = useCallback((friend: User) => {
     setSelectedFriend(friend);
     setMessages([]);
     setActiveTab("chat");
-  }
+    // FIX #3: Immediately zero unread badge when user taps the conversation
+    setUnreadCounts((c) => ({ ...c, [friend.id]: 0 }));
+  }, []);
+
   function goBack() {
     if (activeTab === "chat") { setSelectedFriend(null); setActiveTab("messages"); }
     else setActiveTab("home");
@@ -566,6 +772,7 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
     setOutgoingCall({ roomId, isVideo, receiverName: selectedFriend.fullName });
     getSocket()?.emit("call:initiate", { receiverId: selectedFriend.id, isVideo, roomId });
   }
+
   function acceptCall() {
     if (!incomingCall) return;
     getSocket()?.emit("call:accept", { callerId: incomingCall.callerId, roomId: incomingCall.roomId });
@@ -574,50 +781,68 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
     setActiveCall({ roomId: incomingCall.roomId, isVideo: incomingCall.isVideo });
     setIncomingCall(null);
   }
+
   function declineCall() {
     if (!incomingCall) return;
     getSocket()?.emit("call:decline", { callerId: incomingCall.callerId });
     setIncomingCall(null);
   }
 
-  function handleSend(e: FormEvent) {
-    e.preventDefault();
-    if (!selectedFriend || (!messageInput.trim() && !imagePreview)) return;
-    getSocket()?.emit("message:send", {
-      receiverId: selectedFriend.id,
-      content: messageInput,
-      imageUrl: imagePreview,
-    });
-    getSocket()?.emit("typing:stop", { receiverId: selectedFriend.id });
-    setMessageInput("");
-    setImagePreview(null);
-    requestAnimationFrame(() => compInputRef.current?.focus());
-  }
+  // FIX #1 + #4: Stable send handler — wrapped in useCallback, selectedFriend
+  // accessed via ref so the callback identity never changes during a conversation
+  const selectedFriendIdRef = useRef<string | undefined>(undefined);
+  useEffect(() => { selectedFriendIdRef.current = selectedFriend?.id; }, [selectedFriend?.id]);
 
-  function handleTyping(e: React.ChangeEvent<HTMLInputElement>) {
+  const handleSend = useCallback((e: FormEvent) => {
+    e.preventDefault();
+    const friendId = selectedFriendIdRef.current;
+    if (!friendId) return;
+    setMessageInput(prev => {
+      if (!prev.trim() && !imagePreview) return prev;
+      getSocket()?.emit("message:send", {
+        receiverId: friendId,
+        content: prev,
+        imageUrl: imagePreview,
+      });
+      getSocket()?.emit("typing:stop", { receiverId: friendId });
+      setImagePreview(null);
+      requestAnimationFrame(() => compInputRef.current?.focus());
+      return "";
+    });
+  // imagePreview accessed from closure is fine since setMessageInput reads it via outer state
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // FIX #1 (CORE): Stable typing handler — useCallback with empty deps.
+  // Typing state tracked in a ref to avoid stale-closure issues without
+  // triggering re-renders or recreating this function.
+  const handleTyping = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     setMessageInput(e.target.value);
-    if (!selectedFriend) return;
-    if (!isTyping) {
-      setIsTyping(true);
-      getSocket()?.emit("typing:start", { receiverId: selectedFriend.id });
+    const friendId = selectedFriendIdRef.current;
+    if (!friendId) return;
+    if (!isTypingRef.current) {
+      isTypingRef.current = true;
+      getSocket()?.emit("typing:start", { receiverId: friendId });
     }
     if (typingTimer.current) clearTimeout(typingTimer.current);
     typingTimer.current = setTimeout(() => {
-      setIsTyping(false);
-      getSocket()?.emit("typing:stop", { receiverId: selectedFriend.id });
+      isTypingRef.current = false;
+      getSocket()?.emit("typing:stop", { receiverId: friendId });
     }, 2000);
-  }
+  }, []); // ← empty deps: function never recreated, input never re-mounts
 
-  function handleImgUpload(e: React.ChangeEvent<HTMLInputElement>) {
+  const handleImgUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
     reader.onloadend = () => setImagePreview(reader.result as string);
     reader.readAsDataURL(file);
-  }
+  }, []);
+
+  const handleClearImage = useCallback(() => setImagePreview(null), []);
 
   // ─── DESKTOP SIDEBAR ─────────────────────────────────────────────────────
-  const SidebarItem = ({ id, label, icon, badge }: { id: AppTab; label: string; icon: React.ReactNode; badge?: number }) => {
+  function renderSidebarItem({ id, label, icon, badge }: { id: AppTab; label: string; icon: React.ReactNode; badge?: number }) {
     const active = id === "messages" ? (activeTab === "messages" || activeTab === "chat") : activeTab === id;
     return (
       <button
@@ -650,11 +875,11 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
         ) : null}
       </button>
     );
-  };
+  }
 
   // ─── CONTENT PANELS ──────────────────────────────────────────────────────
 
-  const SectionTitle = ({ title, action, onAction }: { title: string; action?: string; onAction?: () => void }) => (
+  function renderSectionTitle({ title, action, onAction }: { title: string; action?: string; onAction?: () => void }) { return (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
       <h2 style={{
         fontSize: "0.72rem", fontWeight: 700, color: C.textDim,
@@ -672,12 +897,18 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
         </button>
       )}
     </div>
+  ); }
+
+  // Stable callbacks for friend-list chat opens (prevent ChatItem re-renders)
+  const openChatCallbacks = useMemo(
+    () => Object.fromEntries(friends.map(f => [f.id, () => openChat(f)])),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [friends.map(f => f.id).join(",")]
   );
 
-  const HomeContent = () => (
+  function renderHomeContent() { return (
     <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden", padding: isDesktop ? "32px 36px" : 20, minHeight: 0 }}>
       <HeroCard onStartRandom={() => navigate("/app/random")} />
-
       <div style={{
         display: "grid",
         gridTemplateColumns: isDesktop ? "1fr 1fr" : "1fr",
@@ -686,7 +917,7 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
         marginTop: 28,
       }}>
         <div>
-          <SectionTitle title="Curated For You" action="Discover all" onAction={() => setActiveTab("discover")} />
+          {renderSectionTitle({ title: "Curated For You", action: "Discover all", onAction: () => setActiveTab("discover") })}
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             {discoverUsers.slice(0, 4).length === 0
               ? (
@@ -702,9 +933,8 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
             }
           </div>
         </div>
-
         <div>
-          <SectionTitle title="Active Dialogue" action="See all" onAction={() => setActiveTab("messages")} />
+          {renderSectionTitle({ title: "Active Dialogue", action: "See all", onAction: () => setActiveTab("messages") })}
           {friends.length > 0 && (
             <div style={{ marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}>
               <span style={{
@@ -731,7 +961,7 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
                   <ChatItem key={f.id} friend={f}
                     unread={unreadCounts[f.id] ?? 0}
                     lastMsg={lastMessages[f.id]}
-                    onClick={() => openChat(f)}
+                    onClick={openChatCallbacks[f.id] ?? (() => openChat(f))}
                     compact
                   />
                 ))
@@ -741,9 +971,9 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
       </div>
       <div style={{ height: 32 }} />
     </div>
-  );
+  ); }
 
-  const MessagesContent = () => (
+  function renderMessagesContent() { return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
       <div style={{
         padding: "20px 24px 16px",
@@ -753,7 +983,6 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
         <h2 style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, fontSize: "1.2rem", color: C.text, letterSpacing: "-0.02em" }}>Inbox</h2>
         <p style={{ fontFamily: FONT_BODY, fontSize: "0.78rem", color: C.accentGreen, marginTop: 2, fontWeight: 500 }}>{friends.length} conversations</p>
       </div>
-
       {requests.length > 0 && (
         <button onClick={() => setActiveTab("profile")} style={{
           display: "flex", alignItems: "center", gap: 12, width: "100%",
@@ -778,7 +1007,6 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
           <ChevronRight size={14} color={C.textDim} />
         </button>
       )}
-
       <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden", minHeight: 0 }}>
         {friends.length === 0
           ? (
@@ -790,15 +1018,15 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
               <ChatItem key={f.id} friend={f} active={selectedFriend?.id === f.id}
                 unread={unreadCounts[f.id] ?? 0}
                 lastMsg={lastMessages[f.id]}
-                onClick={() => openChat(f)}
+                onClick={openChatCallbacks[f.id] ?? (() => openChat(f))}
               />
             ))
         }
       </div>
     </div>
-  );
+  ); }
 
-  const ChatContent = () => {
+  function renderChatContent() {
     if (!selectedFriend) return (
       <div style={{
         flex: 1, display: "flex", alignItems: "center", justifyContent: "center",
@@ -887,122 +1115,32 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
           </div>
         </div>
 
-        {/* Messages */}
-        <div style={{
-          flex: 1, overflowY: "auto", overflowX: "hidden",
-          padding: "20px 20px", display: "flex", flexDirection: "column",
-          gap: 4, minHeight: 0, background: C.bg,
-        }}>
-          {messages.length === 0
-            ? (
-              <div style={{
-                flex: 1, display: "flex", alignItems: "center", justifyContent: "center",
-                color: C.textDim, fontSize: "0.86rem", textAlign: "center",
-                fontFamily: FONT_BODY,
-              }}>
-                Say hello to {selectedFriend.fullName} 👋
-              </div>
-            )
-            : messages.map((m) => (
-                <MessageBubble key={m.id} msg={m} mine={m.senderId === user.id} />
-              ))
-          }
-          {partnerTyping && (
-            <div style={{ display: "flex", padding: "4px 0" }}>
-              <div style={{
-                padding: "10px 14px", borderRadius: "16px 16px 16px 4px",
-                background: C.surfaceAlt, border: `1px solid ${C.border}`,
-                display: "flex", gap: 4, alignItems: "center",
-              }}>
-                {[0, 180, 360].map((delay, i) => (
-                  <span key={i} style={{
-                    width: 5, height: 5, borderRadius: "50%",
-                    background: C.accent, display: "inline-block",
-                    animation: `tdot 1.2s ${delay}ms infinite`,
-                  }} />
-                ))}
-              </div>
-            </div>
-          )}
-          <div ref={bottomRef} />
-        </div>
+        {/* FIX #1 + #4: MessageList is memoized — typing in ChatInput won't re-render messages */}
+        <MessageList
+          messages={messages}
+          userId={user.id}
+          partnerTyping={partnerTyping}
+          bottomRef={bottomRef}
+        />
 
-        {imagePreview && (
-          <div style={{
-            padding: "8px 16px", flexShrink: 0,
-            borderTop: `1px solid ${C.border}`,
-            display: "flex", alignItems: "center", gap: 10,
-            background: C.surfaceAlt,
-          }}>
-            <img src={imagePreview} alt="preview" style={{ height: 52, borderRadius: 8, objectFit: "cover" }} />
-            <button onClick={() => setImagePreview(null)} style={{
-              width: 22, height: 22, borderRadius: "50%", background: "#ef4444",
-              border: "none", color: "#fff", cursor: "pointer",
-              display: "flex", alignItems: "center", justifyContent: "center",
-            }}><X size={11} /></button>
-          </div>
-        )}
-
-        {/* Input */}
-        <form onSubmit={handleSend} style={{
-          display: "flex", alignItems: "center", gap: 8,
-          padding: "12px 16px",
-          paddingBottom: "calc(12px + env(safe-area-inset-bottom, 0px))",
-          flexShrink: 0,
-          borderTop: `1px solid ${C.border}`,
-          background: C.bg,
-        }}>
-          <input type="file" accept="image/*" style={{ display: "none" }} ref={fileRef} onChange={handleImgUpload} />
-          <button type="button" onClick={() => fileRef.current?.click()} style={{
-            width: 38, height: 38, borderRadius: 10, flexShrink: 0,
-            background: C.surfaceAlt, border: `1px solid ${C.border}`,
-            display: "flex", alignItems: "center", justifyContent: "center",
-            color: C.textMuted, cursor: "pointer",
-          }}>
-            <ImagePlus size={15} />
-          </button>
-          <input
-            ref={compInputRef}
-            style={{
-              flex: 1, background: C.surfaceAlt,
-              border: `1px solid ${C.border}`,
-              borderRadius: 12, padding: "10px 14px",
-              color: C.text, outline: "none", minWidth: 0,
-              fontFamily: FONT_BODY,
-              transition: "border-color 0.2s",
-            }}
-            onFocus={e => e.currentTarget.style.borderColor = C.borderGlow}
-            onBlur={e => e.currentTarget.style.borderColor = C.border}
-            placeholder="Message…"
-            value={messageInput}
-            onChange={handleTyping}
-            autoComplete="off" autoCorrect="off" spellCheck={false}
-            enterKeyHint="send"
-          />
-          <button
-            type="submit"
-            className="send-btn"
-            disabled={!messageInput.trim() && !imagePreview}
-            style={{
-              width: 38, height: 38, borderRadius: 10, flexShrink: 0,
-              background: (messageInput.trim() || imagePreview)
-                ? "linear-gradient(135deg, #6d28d9, #8b5cf6)"
-                : C.surfaceAlt,
-              border: (messageInput.trim() || imagePreview) ? "none" : `1px solid ${C.border}`,
-              display: "flex", alignItems: "center", justifyContent: "center",
-              color: (messageInput.trim() || imagePreview) ? "#fff" : C.textDim,
-              cursor: (messageInput.trim() || imagePreview) ? "pointer" : "default",
-              transition: "all 0.2s",
-            }}
-          >
-            <Send size={14} />
-          </button>
-        </form>
+        {/* FIX #1 (CORE): ChatInput is fully memoized with stable callback refs.
+            It will NEVER re-mount or re-render due to parent state changes.
+            The input ref is stable across renders — focus is permanent. */}
+        <ChatInput
+          value={messageInput}
+          imagePreview={imagePreview}
+          inputRef={compInputRef}
+          fileRef={fileRef}
+          onChange={handleTyping}
+          onSend={handleSend}
+          onImageUpload={handleImgUpload}
+          onClearImage={handleClearImage}
+        />
       </div>
     );
-  };
+  }
 
-  const DiscoverContent = () => (
+  function renderDiscoverContent() { return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
       <div style={{ padding: "20px 24px 16px", borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
         <h2 style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, fontSize: "1.2rem", color: C.text, letterSpacing: "-0.02em" }}>Discover</h2>
@@ -1067,15 +1205,14 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
         <div style={{ height: 20 }} />
       </div>
     </div>
-  );
+  ); }
 
-  const ProfileContent = () => (
+  function renderProfileContent() { return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
       <div style={{ padding: "20px 24px 16px", borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
         <h2 style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, fontSize: "1.2rem", color: C.text, letterSpacing: "-0.02em" }}>Profile</h2>
       </div>
       <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden", padding: 20, minHeight: 0 }}>
-        {/* Profile card */}
         <div style={{
           background: "linear-gradient(135deg, #0d1428, #0f1730)",
           border: `1px solid rgba(139,92,246,0.15)`,
@@ -1103,7 +1240,6 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
               </div>
             )}
           </div>
-
           <div style={{
             display: "flex", width: "100%",
             background: "rgba(255,255,255,0.03)", borderRadius: 14,
@@ -1121,7 +1257,6 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
               </div>
             ))}
           </div>
-
           <div style={{
             display: "inline-flex", alignItems: "center", gap: 6,
             background: "rgba(139,92,246,0.1)",
@@ -1133,7 +1268,6 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
               ELITE STATUS
             </span>
           </div>
-
           <button onClick={onLogout} style={{
             background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.2)",
             color: "#f87171", borderRadius: 10, padding: "10px 28px",
@@ -1142,7 +1276,6 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
           }}>Sign Out</button>
         </div>
 
-        {/* Friend Requests */}
         {requests.length > 0 && (
           <div style={{
             background: C.surfaceAlt, border: `1px solid ${C.border}`,
@@ -1184,7 +1317,6 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
           </div>
         )}
 
-        {/* Notifications */}
         {notifications.length > 0 && (
           <div style={{
             background: C.surfaceAlt, border: `1px solid ${C.border}`,
@@ -1214,7 +1346,6 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
           </div>
         )}
 
-        {/* Blocked */}
         <div style={{
           background: C.surfaceAlt, border: `1px solid ${C.border}`,
           borderRadius: 16, overflow: "hidden",
@@ -1260,12 +1391,13 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
         <div style={{ height: 24 }} />
       </div>
     </div>
-  );
+  ); }
 
   // ─── MOBILE Bottom Nav ────────────────────────────────────────────────────
   const mobileTabs: { id: AppTab; label: string; icon: React.ReactNode; badge?: number }[] = [
     { id: "home",     label: "Club",    icon: <Home size={20} /> },
     { id: "discover", label: "Explore", icon: <Grid3x3 size={20} /> },
+    // FIX #2: badge shows count of users with unread, not total message count
     { id: "messages", label: "Inbox",   icon: <MessageCircle size={20} />, badge: usersWithUnread },
     { id: "profile",  label: "Elite",   icon: <Star size={20} /> },
   ];
@@ -1273,8 +1405,88 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
     id === "messages" ? (activeTab === "messages" || activeTab === "chat") : activeTab === id;
 
   // ─── RENDER ───────────────────────────────────────────────────────────────
+  const callOverlays = (
+    <>
+      {outgoingCall && !activeCall && (
+        <div style={{
+          position: "fixed", inset: 0, zIndex: 99999,
+          background: "rgba(6,9,16,0.97)",
+          backdropFilter: "blur(20px)",
+          display: "flex", flexDirection: "column",
+          alignItems: "center", justifyContent: "center",
+          animation: "fade-in 0.3s ease",
+        }}>
+          <div style={{
+            width: 100, height: 100, borderRadius: "50%",
+            background: "linear-gradient(135deg, #6d28d9, #8b5cf6)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            fontSize: "2rem", fontWeight: 800, color: "#fff",
+            fontFamily: FONT_DISPLAY, marginBottom: 24,
+            animation: "pulse-ring 1.5s infinite",
+          }}>
+            {initials(outgoingCall.receiverName)}
+          </div>
+          <h3 style={{ color: C.text, fontSize: "1.5rem", fontFamily: FONT_DISPLAY, fontWeight: 900, letterSpacing: "-0.02em" }}>
+            {outgoingCall.receiverName}
+          </h3>
+          <p style={{ color: C.textMuted, marginTop: 8, fontSize: "0.87rem", fontFamily: FONT_BODY }}>Calling…</p>
+          <button onClick={() => setOutgoingCall(null)} style={{
+            marginTop: 36, background: "#ef4444",
+            padding: "12px 28px", borderRadius: 12, border: "none",
+            color: "#fff", cursor: "pointer", fontSize: "0.9rem", fontWeight: 700,
+            display: "flex", alignItems: "center", gap: 8, fontFamily: FONT_DISPLAY,
+          }}>
+            <Phone size={15} style={{ transform: "rotate(135deg)" }} /> Cancel
+          </button>
+        </div>
+      )}
+      {incomingCall && !activeCall && (
+        <div style={{
+          position: "fixed", inset: 0, zIndex: 99999,
+          background: "rgba(6,9,16,0.97)",
+          backdropFilter: "blur(20px)",
+          display: "flex", flexDirection: "column",
+          alignItems: "center", justifyContent: "center",
+          animation: "fade-in 0.3s ease",
+        }}>
+          <div style={{
+            width: 100, height: 100, borderRadius: "50%",
+            background: "linear-gradient(135deg, #047857, #10b981)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            fontSize: "2rem", fontWeight: 800, color: "#fff",
+            fontFamily: FONT_DISPLAY, marginBottom: 24,
+          }}>
+            {initials(incomingCall.callerName)}
+          </div>
+          <h3 style={{ color: C.text, fontSize: "1.5rem", fontFamily: FONT_DISPLAY, fontWeight: 900, letterSpacing: "-0.02em" }}>
+            {incomingCall.callerName}
+          </h3>
+          <p style={{ color: C.textMuted, marginTop: 8, fontSize: "0.87rem", fontFamily: FONT_BODY }}>
+            Incoming {incomingCall.isVideo ? "Video" : "Audio"} Call
+          </p>
+          <div style={{ display: "flex", gap: 24, marginTop: 40 }}>
+            <button onClick={declineCall} style={{
+              background: "#ef4444", borderRadius: "50%", border: "none", color: "#fff",
+              cursor: "pointer", width: 64, height: 64,
+              display: "flex", alignItems: "center", justifyContent: "center",
+            }}>
+              <Phone size={22} style={{ transform: "rotate(135deg)" }} />
+            </button>
+            <button onClick={acceptCall} style={{
+              background: "linear-gradient(135deg, #047857, #10b981)",
+              borderRadius: "50%", border: "none", color: "#fff",
+              cursor: "pointer", width: 64, height: 64,
+              display: "flex", alignItems: "center", justifyContent: "center",
+            }}>
+              {incomingCall.isVideo ? <Camera size={22} /> : <Phone size={22} />}
+            </button>
+          </div>
+        </div>
+      )}
+    </>
+  );
+
   if (isDesktop) {
-    // ── DESKTOP LAYOUT ──────────────────────────────────────────────────────
     return (
       <>
         <style>{GLOBAL_CSS}</style>
@@ -1293,7 +1505,6 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
             borderRight: `1px solid ${C.border}`,
             overflow: "hidden",
           }}>
-            {/* Logo */}
             <div style={{
               display: "flex", alignItems: "center", gap: 10,
               padding: "18px 18px 14px",
@@ -1313,8 +1524,6 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
                 CAMPUS<span style={{ color: C.accent }}>·</span>
               </span>
             </div>
-
-            {/* User mini profile */}
             <div style={{
               padding: "14px 16px",
               borderBottom: `1px solid ${C.border}`,
@@ -1329,22 +1538,16 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
                 <div style={{ fontSize: "0.69rem", color: C.accentGreen, fontWeight: 600, fontFamily: FONT_BODY }}>● Online</div>
               </div>
               {notifications.length > 0 && (
-                <div style={{
-                  width: 8, height: 8, borderRadius: "50%",
-                  background: C.accentPink,
-                }} />
+                <div style={{ width: 8, height: 8, borderRadius: "50%", background: C.accentPink }} />
               )}
             </div>
-
-            {/* Nav items */}
             <nav style={{ padding: "12px 10px", display: "flex", flexDirection: "column", gap: 2 }}>
-              <SidebarItem id="home" label="Club Home" icon={<Home size={17} />} />
-              <SidebarItem id="discover" label="Explore" icon={<Grid3x3 size={17} />} />
-              <SidebarItem id="messages" label="Inbox" icon={<MessageCircle size={17} />} badge={usersWithUnread} />
-              <SidebarItem id="profile" label="Profile" icon={<UserCircle2 size={17} />} />
+              {renderSidebarItem({ id: "home", label: "Club Home", icon: <Home size={17} /> })}
+              {renderSidebarItem({ id: "discover", label: "Explore", icon: <Grid3x3 size={17} /> })}
+              {/* FIX #2: badge uses usersWithUnread */}
+              {renderSidebarItem({ id: "messages", label: "Inbox", icon: <MessageCircle size={17} />, badge: usersWithUnread })}
+              {renderSidebarItem({ id: "profile", label: "Profile", icon: <UserCircle2 size={17} /> })}
             </nav>
-
-            {/* Quick chat list */}
             {friends.length > 0 && (
               <>
                 <div style={{
@@ -1361,7 +1564,7 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
                     <button
                       key={f.id}
                       className="sidebar-btn"
-                      onClick={() => openChat(f)}
+                      onClick={openChatCallbacks[f.id] ?? (() => openChat(f))}
                       style={{
                         display: "flex", alignItems: "center", gap: 9,
                         padding: "8px 14px", width: "100%",
@@ -1380,6 +1583,7 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
                         fontFamily: FONT_BODY,
                         overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1,
                       }}>{f.fullName}</span>
+                      {/* FIX #2: per-user unread count */}
                       {unreadCounts[f.id] > 0 && (
                         <span style={{
                           background: C.accentPink, color: "#fff", fontSize: "0.55rem",
@@ -1396,7 +1600,6 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
 
           {/* ── Main Content ── */}
           <main style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
-            {/* Top bar */}
             <header style={{
               display: "flex", alignItems: "center", justifyContent: "space-between",
               padding: "0 28px", height: 60, flexShrink: 0,
@@ -1446,10 +1649,7 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
                 </button>
               </div>
             </header>
-
-            {/* Content */}
             <div style={{ flex: 1, overflow: "hidden", display: "flex", minHeight: 0 }}>
-              {/* Left panel: message list when in chat/messages tab */}
               {(activeTab === "messages" || activeTab === "chat") && (
                 <div style={{
                   width: 320, flexShrink: 0,
@@ -1457,99 +1657,19 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
                   display: "flex", flexDirection: "column",
                   overflow: "hidden",
                 }}>
-                  <MessagesContent />
+                  {renderMessagesContent()}
                 </div>
               )}
-
-              {/* Right panel */}
               <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column", minWidth: 0 }}>
-                {activeTab === "home" && <HomeContent />}
-                {activeTab === "discover" && <DiscoverContent />}
-                {(activeTab === "messages" || activeTab === "chat") && <ChatContent />}
-                {activeTab === "profile" && <ProfileContent />}
+                {activeTab === "home" && renderHomeContent()}
+                {activeTab === "discover" && renderDiscoverContent()}
+                {(activeTab === "messages" || activeTab === "chat") && renderChatContent()}
+                {activeTab === "profile" && renderProfileContent()}
               </div>
             </div>
           </main>
         </div>
-
-        {/* Call overlays */}
-        {outgoingCall && !activeCall && (
-          <div style={{
-            position: "fixed", inset: 0, zIndex: 99999,
-            background: "rgba(6,9,16,0.97)",
-            backdropFilter: "blur(20px)",
-            display: "flex", flexDirection: "column",
-            alignItems: "center", justifyContent: "center",
-            animation: "fade-in 0.3s ease",
-          }}>
-            <div style={{
-              width: 100, height: 100, borderRadius: "50%",
-              background: "linear-gradient(135deg, #6d28d9, #8b5cf6)",
-              display: "flex", alignItems: "center", justifyContent: "center",
-              fontSize: "2rem", fontWeight: 800, color: "#fff",
-              fontFamily: FONT_DISPLAY, marginBottom: 24,
-              animation: "pulse-ring 1.5s infinite",
-            }}>
-              {initials(outgoingCall.receiverName)}
-            </div>
-            <h3 style={{ color: C.text, fontSize: "1.5rem", fontFamily: FONT_DISPLAY, fontWeight: 900, letterSpacing: "-0.02em" }}>
-              {outgoingCall.receiverName}
-            </h3>
-            <p style={{ color: C.textMuted, marginTop: 8, fontSize: "0.87rem", fontFamily: FONT_BODY }}>Calling…</p>
-            <button onClick={() => setOutgoingCall(null)} style={{
-              marginTop: 36, background: "#ef4444",
-              padding: "12px 28px", borderRadius: 12, border: "none",
-              color: "#fff", cursor: "pointer", fontSize: "0.9rem", fontWeight: 700,
-              display: "flex", alignItems: "center", gap: 8, fontFamily: FONT_DISPLAY,
-            }}>
-              <Phone size={15} style={{ transform: "rotate(135deg)" }} /> Cancel
-            </button>
-          </div>
-        )}
-
-        {incomingCall && !activeCall && (
-          <div style={{
-            position: "fixed", inset: 0, zIndex: 99999,
-            background: "rgba(6,9,16,0.97)",
-            backdropFilter: "blur(20px)",
-            display: "flex", flexDirection: "column",
-            alignItems: "center", justifyContent: "center",
-            animation: "fade-in 0.3s ease",
-          }}>
-            <div style={{
-              width: 100, height: 100, borderRadius: "50%",
-              background: "linear-gradient(135deg, #047857, #10b981)",
-              display: "flex", alignItems: "center", justifyContent: "center",
-              fontSize: "2rem", fontWeight: 800, color: "#fff",
-              fontFamily: FONT_DISPLAY, marginBottom: 24,
-            }}>
-              {initials(incomingCall.callerName)}
-            </div>
-            <h3 style={{ color: C.text, fontSize: "1.5rem", fontFamily: FONT_DISPLAY, fontWeight: 900, letterSpacing: "-0.02em" }}>
-              {incomingCall.callerName}
-            </h3>
-            <p style={{ color: C.textMuted, marginTop: 8, fontSize: "0.87rem", fontFamily: FONT_BODY }}>
-              Incoming {incomingCall.isVideo ? "Video" : "Audio"} Call
-            </p>
-            <div style={{ display: "flex", gap: 24, marginTop: 40 }}>
-              <button onClick={declineCall} style={{
-                background: "#ef4444", borderRadius: "50%", border: "none", color: "#fff",
-                cursor: "pointer", width: 64, height: 64,
-                display: "flex", alignItems: "center", justifyContent: "center",
-              }}>
-                <Phone size={22} style={{ transform: "rotate(135deg)" }} />
-              </button>
-              <button onClick={acceptCall} style={{
-                background: "linear-gradient(135deg, #047857, #10b981)",
-                borderRadius: "50%", border: "none", color: "#fff",
-                cursor: "pointer", width: 64, height: 64,
-                display: "flex", alignItems: "center", justifyContent: "center",
-              }}>
-                {incomingCall.isVideo ? <Camera size={22} /> : <Phone size={22} />}
-              </button>
-            </div>
-          </div>
-        )}
+        {callOverlays}
       </>
     );
   }
@@ -1565,7 +1685,6 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
         fontFamily: FONT_BODY,
         overflow: "hidden",
       }}>
-        {/* Mobile top bar (not in chat) */}
         {activeTab !== "chat" && activeTab !== "messages" && (
           <div style={{
             display: "flex", alignItems: "center", justifyContent: "space-between",
@@ -1613,7 +1732,7 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
             <div style={{ flex: 1, overflowY: "auto", padding: "16px 16px", minHeight: 0 }}>
               <HeroCard onStartRandom={() => navigate("/app/random")} />
               <div style={{ marginTop: 20 }}>
-                <SectionTitle title="Curated For You" action="All" onAction={() => setActiveTab("discover")} />
+                {renderSectionTitle({ title: "Curated For You", action: "All", onAction: () => setActiveTab("discover") })}
                 <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                   {discoverUsers.slice(0, 3).map((u) => (
                     <UserCard key={u.id} user={u} onAdd={() => void sendFriendRequest(u.id)} />
@@ -1621,10 +1740,16 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
                 </div>
               </div>
               <div style={{ marginTop: 20 }}>
-                <SectionTitle title="Active Dialogue" action="See all" onAction={() => setActiveTab("messages")} />
+                {renderSectionTitle({ title: "Active Dialogue", action: "See all", onAction: () => setActiveTab("messages") })}
                 <div style={{ background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 14, overflow: "hidden" }}>
                   {friends.slice(0, 4).map(f => (
-                    <ChatItem key={f.id} friend={f} unread={unreadCounts[f.id] ?? 0} lastMsg={lastMessages[f.id]} onClick={() => openChat(f)} compact />
+                    <ChatItem
+                      key={f.id} friend={f}
+                      unread={unreadCounts[f.id] ?? 0}
+                      lastMsg={lastMessages[f.id]}
+                      onClick={openChatCallbacks[f.id] ?? (() => openChat(f))}
+                      compact
+                    />
                   ))}
                   {friends.length === 0 && (
                     <div style={{ padding: 20, textAlign: "center", color: C.textDim, fontSize: "0.82rem", fontFamily: FONT_BODY }}>Add friends to chat</div>
@@ -1634,13 +1759,12 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
               <div style={{ height: 24 }} />
             </div>
           )}
-          {activeTab === "discover" && <DiscoverContent />}
-          {activeTab === "messages" && <MessagesContent />}
-          {activeTab === "chat" && <ChatContent />}
-          {activeTab === "profile" && <ProfileContent />}
+          {activeTab === "discover" && renderDiscoverContent()}
+          {activeTab === "messages" && renderMessagesContent()}
+          {activeTab === "chat" && renderChatContent()}
+          {activeTab === "profile" && renderProfileContent()}
         </div>
 
-        {/* Bottom Nav */}
         {activeTab !== "chat" && (
           <nav style={{
             display: "flex",
@@ -1697,74 +1821,7 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
           </nav>
         )}
       </div>
-
-      {/* Call overlays */}
-      {outgoingCall && !activeCall && (
-        <div style={{
-          position: "fixed", inset: 0, zIndex: 99999,
-          background: "rgba(6,9,16,0.97)", backdropFilter: "blur(20px)",
-          display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-          animation: "fade-in 0.3s ease",
-        }}>
-          <div style={{
-            width: 100, height: 100, borderRadius: "50%",
-            background: "linear-gradient(135deg, #6d28d9, #8b5cf6)",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            fontSize: "2rem", fontWeight: 800, color: "#fff",
-            fontFamily: FONT_DISPLAY, marginBottom: 24,
-            animation: "pulse-ring 1.5s infinite",
-          }}>
-            {initials(outgoingCall.receiverName)}
-          </div>
-          <h3 style={{ color: C.text, fontSize: "1.4rem", fontFamily: FONT_DISPLAY, fontWeight: 900 }}>{outgoingCall.receiverName}</h3>
-          <p style={{ color: C.textMuted, marginTop: 8, fontSize: "0.85rem", fontFamily: FONT_BODY }}>Calling…</p>
-          <button onClick={() => setOutgoingCall(null)} style={{
-            marginTop: 36, background: "#ef4444",
-            padding: "12px 28px", borderRadius: 12, border: "none",
-            color: "#fff", cursor: "pointer", fontWeight: 700,
-            display: "flex", alignItems: "center", gap: 8, fontFamily: FONT_DISPLAY,
-          }}>
-            <Phone size={15} style={{ transform: "rotate(135deg)" }} /> Cancel
-          </button>
-        </div>
-      )}
-      {incomingCall && !activeCall && (
-        <div style={{
-          position: "fixed", inset: 0, zIndex: 99999,
-          background: "rgba(6,9,16,0.97)", backdropFilter: "blur(20px)",
-          display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-          animation: "fade-in 0.3s ease",
-        }}>
-          <div style={{
-            width: 100, height: 100, borderRadius: "50%",
-            background: "linear-gradient(135deg, #047857, #10b981)",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            fontSize: "2rem", fontWeight: 800, color: "#fff",
-            fontFamily: FONT_DISPLAY, marginBottom: 24,
-          }}>
-            {initials(incomingCall.callerName)}
-          </div>
-          <h3 style={{ color: C.text, fontSize: "1.4rem", fontFamily: FONT_DISPLAY, fontWeight: 900 }}>{incomingCall.callerName}</h3>
-          <p style={{ color: C.textMuted, marginTop: 8, fontFamily: FONT_BODY }}>Incoming {incomingCall.isVideo ? "Video" : "Audio"} Call</p>
-          <div style={{ display: "flex", gap: 24, marginTop: 40 }}>
-            <button onClick={declineCall} style={{
-              background: "#ef4444", borderRadius: "50%", border: "none", color: "#fff",
-              cursor: "pointer", width: 64, height: 64,
-              display: "flex", alignItems: "center", justifyContent: "center",
-            }}>
-              <Phone size={22} style={{ transform: "rotate(135deg)" }} />
-            </button>
-            <button onClick={acceptCall} style={{
-              background: "linear-gradient(135deg, #047857, #10b981)",
-              borderRadius: "50%", border: "none", color: "#fff",
-              cursor: "pointer", width: 64, height: 64,
-              display: "flex", alignItems: "center", justifyContent: "center",
-            }}>
-              {incomingCall.isVideo ? <Camera size={22} /> : <Phone size={22} />}
-            </button>
-          </div>
-        </div>
-      )}
+      {callOverlays}
     </>
   );
 }

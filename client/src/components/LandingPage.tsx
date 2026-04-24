@@ -706,7 +706,7 @@ export function LandingPage({ isLoggedIn, onLogout }: LandingPageProps) {
               </p>
               <div className="lp-cta-btns">
                 <button className="lp-cta-btn-primary" onClick={handleCta}>
-                  Join the Pulse
+                  Join the CampusTV
                 </button>
                 <button className="lp-cta-btn-secondary">
                   Request Campus Launch
