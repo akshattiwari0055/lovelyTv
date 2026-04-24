@@ -1,14 +1,14 @@
 /**
  * Dashboard.tsx — Redesigned Mobile-First Campus Connect UI
  *
- * KEY FIXES APPLIED:
- * 1. No horizontal overflow — root is position:fixed + overflow:hidden, all children maxWidth:100%
- * 2. Scroll isolation — only inner lists/msgs scroll via overflowY:auto + flex:1 + minHeight:0
- * 3. Screen-stack navigation — each tab is a full isolated screen, back button on every inner view
- * 4. WhatsApp-style chat — sticky header, sticky composer, messages scroll independently between them
- * 5. Unread badge system — per-sender count, last message preview, red dot + pill
- * 6. Reusable components — ChatItem, UserCard, MessageBubble, ScreenHeader, Avatar
- * 7. Bottom nav — safeAreaInset aware, never overflows, hidden when in chat
+ * FIXES APPLIED:
+ * 1. Hide user email everywhere — show course/year or interests fallback
+ * 2. Discover: search by name (client-side filter) instead of course/year
+ * 3. Chat input focus — refocus after send, font-size 16px prevents iOS zoom/layout shift
+ * 4. No horizontal overflow — root is position:fixed + overflow:hidden
+ * 5. Scroll isolation — only inner lists/msgs scroll via overflowY:auto + flex:1 + minHeight:0
+ * 6. WhatsApp-style chat — sticky header, sticky composer, messages scroll independently
+ * 7. Unread badge system — per-sender count, last message preview
  */
 
 import {
@@ -131,6 +131,7 @@ function ChatItem({ friend, unread, lastMsg, active, onClick }:
 }
 
 // ─── UserCard ─────────────────────────────────────────────────────────────────
+// FIX 1: email is never shown — replaced with course/year or interests fallback
 function UserCard({ user: u, onAdd }: { user: User; onAdd: () => void }) {
   const [sent, setSent] = useState(false);
   return (
@@ -145,8 +146,13 @@ function UserCard({ user: u, onAdd }: { user: User; onAdd: () => void }) {
         <div style={{ fontSize: "0.87rem", fontWeight: 700, color: "#fff", marginBottom: 2 }}>
           {u.fullName}
         </div>
+        {/* FIXED: never show email — show course/year or interests or generic fallback */}
         <div style={{ fontSize: "0.73rem", color: "rgba(255,255,255,0.4)", marginBottom: 3 }}>
-          {u.course && u.year ? `${u.course} · ${u.year} Year` : u.email}
+          {u.course && u.year
+            ? `${u.course} · ${u.year} Year`
+            : u.interests
+              ? u.interests
+              : "Campus student"}
         </div>
         {u.mutualConnections != null && u.mutualConnections > 0 && (
           <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: "0.71rem", color: "#ffb84a" }}>
@@ -182,20 +188,20 @@ function MessageBubble({ msg, mine }: { msg: Message; mine: boolean }) {
         color: mine ? "#1a0e00" : "#dde1ec",
         fontSize: "0.86rem", lineHeight: 1.5, wordBreak: "break-word", boxSizing: "border-box",
       }}>
-{msg.imageUrl && (
-  <img
-    src={msg.imageUrl}
-    alt="img"
-    style={{
-      width: "100%",
-      maxWidth: "min(260px, 70vw)", 
-      height: "auto",
-      borderRadius: 8,
-      marginBottom: 6,
-      display: "block"
-    }}
-  />
-)}
+        {msg.imageUrl && (
+          <img
+            src={msg.imageUrl}
+            alt="img"
+            style={{
+              width: "100%",
+              maxWidth: "min(260px, 70vw)",
+              height: "auto",
+              borderRadius: 8,
+              marginBottom: 6,
+              display: "block",
+            }}
+          />
+        )}
         {msg.content && <span>{msg.content}</span>}
         <div style={{
           display: "flex", alignItems: "center", gap: 4,
@@ -218,6 +224,8 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
   const fileRef = useRef<HTMLInputElement>(null);
   const typingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  // FIX 3: ref for composer input so we can refocus after send
+  const compInputRef = useRef<HTMLInputElement>(null);
 
   const [zegoConfig, setZegoConfig] = useState<{ appId: number; serverSecret: string } | null>(null);
   const [activeCall, setActiveCall] = useState<{ roomId: string; isVideo: boolean } | null>(null);
@@ -243,12 +251,22 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
   const [isTyping, setIsTyping] = useState(false);
   const [partnerTyping, setPartnerTyping] = useState(false);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
-  const [courseFilter, setCourseFilter] = useState("");
-  const [yearFilter, setYearFilter] = useState("");
+
+  // FIX 2: single name filter replacing courseFilter + yearFilter
+  const [nameFilter, setNameFilter] = useState("");
 
   const totalUnread = useMemo(
     () => Object.values(unreadCounts).reduce((a, b) => a + b, 0), [unreadCounts]);
   const conversationIsOpen = activeTab === "chat" && !!selectedFriend;
+
+  // FIX 2: client-side name filter — no extra API calls needed
+  const filteredDiscoverUsers = useMemo(
+    () => nameFilter.trim()
+      ? discoverUsers.filter((u) =>
+          u.fullName.toLowerCase().includes(nameFilter.trim().toLowerCase()))
+      : discoverUsers,
+    [discoverUsers, nameFilter]
+  );
 
   // ─── Socket ──────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -296,13 +314,14 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, selectedFriend?.id, conversationIsOpen, user.id]);
 
+  // FIX 2: no courseFilter/yearFilter in deps — name filter is client-side only
   useEffect(() => {
     void Promise.all([
       loadDiscover(), loadFriends(), loadRequests(), loadBlockedUsers(),
       api.get("/zego-config").then((r) => setZegoConfig(r.data)),
     ]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [courseFilter, yearFilter]);
+  }, []);
 
   useEffect(() => {
     if (!selectedFriend) return;
@@ -315,12 +334,17 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages, partnerTyping]);
 
+  // FIX 3: when switching to chat tab, focus the composer after render
+  useEffect(() => {
+    if (activeTab === "chat") {
+      requestAnimationFrame(() => compInputRef.current?.focus());
+    }
+  }, [activeTab, selectedFriend?.id]);
+
   // ─── API ──────────────────────────────────────────────────────────────────
+  // FIX 2: loadDiscover no longer sends course/year params
   async function loadDiscover() {
-    const p = new URLSearchParams();
-    if (courseFilter) p.append("course", courseFilter);
-    if (yearFilter) p.append("year", yearFilter);
-    const r = await api.get(`/discover${p.toString() ? `?${p}` : ""}`);
+    const r = await api.get("/discover");
     setDiscoverUsers(r.data);
   }
   async function loadFriends() { const r = await api.get("/friends"); setFriends(r.data); }
@@ -387,13 +411,22 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
   }
 
   // ─── Messaging ────────────────────────────────────────────────────────────
+  // FIX 3: refocus input after send so keyboard stays open on mobile
   function handleSend(e: FormEvent) {
     e.preventDefault();
     if (!selectedFriend || (!messageInput.trim() && !imagePreview)) return;
-    getSocket()?.emit("message:send", { receiverId: selectedFriend.id, content: messageInput, imageUrl: imagePreview });
+    getSocket()?.emit("message:send", {
+      receiverId: selectedFriend.id,
+      content: messageInput,
+      imageUrl: imagePreview,
+    });
     getSocket()?.emit("typing:stop", { receiverId: selectedFriend.id });
-    setMessageInput(""); setImagePreview(null);
+    setMessageInput("");
+    setImagePreview(null);
+    // Refocus after React re-render — keeps keyboard open on mobile & avoids re-click on desktop
+    requestAnimationFrame(() => compInputRef.current?.focus());
   }
+
   function handleTyping(e: React.ChangeEvent<HTMLInputElement>) {
     setMessageInput(e.target.value);
     if (!selectedFriend) return;
@@ -403,6 +436,7 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
       setIsTyping(false); getSocket()?.emit("typing:stop", { receiverId: selectedFriend.id });
     }, 2000);
   }
+
   function handleImgUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -638,7 +672,7 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
           </div>
         )}
 
-        {/* Sticky Composer */}
+        {/* Sticky Composer — FIX 3: ref + enterKeyHint + autoComplete + font-size 16px */}
         <form onSubmit={handleSend} style={{
           display: "flex", alignItems: "center", gap: 8,
           padding: "10px 14px",
@@ -649,24 +683,44 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
           backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)",
           boxSizing: "border-box", width: "100%",
         }}>
-          <input type="file" accept="image/*" style={{ display: "none" }} ref={fileRef} onChange={handleImgUpload} />
+          <input
+            type="file"
+            accept="image/*"
+            style={{ display: "none" }}
+            ref={fileRef}
+            onChange={handleImgUpload}
+          />
           <button type="button" onClick={() => fileRef.current?.click()} style={S.compIcon}>
             <ImagePlus size={16} />
           </button>
           <input
-            style={S.compInput}
+            ref={compInputRef}
+            style={{
+              ...S.compInput,
+              // FIX 3: 16px minimum prevents iOS auto-zoom which causes layout shift + focus loss
+              fontSize: "16px",
+            }}
             placeholder="Message…"
             value={messageInput}
             onChange={handleTyping}
+            autoComplete="off"
+            autoCorrect="off"
+            spellCheck={false}
+            // FIX 3: tells mobile keyboard to show a send key
+            enterKeyHint="send"
           />
-          <button type="submit" disabled={!messageInput.trim() && !imagePreview} style={{
-            ...S.compIcon,
-            background: (messageInput.trim() || imagePreview)
-              ? "linear-gradient(135deg, #ffb84a, #ff8c42)"
-              : "rgba(255,255,255,0.05)",
-            color: (messageInput.trim() || imagePreview) ? "#1a0e00" : "rgba(255,255,255,0.25)",
-            border: (messageInput.trim() || imagePreview) ? "none" : "1px solid rgba(255,255,255,0.08)",
-          }}>
+          <button
+            type="submit"
+            disabled={!messageInput.trim() && !imagePreview}
+            style={{
+              ...S.compIcon,
+              background: (messageInput.trim() || imagePreview)
+                ? "linear-gradient(135deg, #ffb84a, #ff8c42)"
+                : "rgba(255,255,255,0.05)",
+              color: (messageInput.trim() || imagePreview) ? "#1a0e00" : "rgba(255,255,255,0.25)",
+              border: (messageInput.trim() || imagePreview) ? "none" : "1px solid rgba(255,255,255,0.08)",
+            }}
+          >
             <Send size={15} />
           </button>
         </form>
@@ -674,26 +728,67 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
     );
   };
 
+  // FIX 2: DiscoverScreen now has name search instead of course/year filters
   const DiscoverScreen = () => (
     <div style={S.screen}>
       <ScreenHeader title="Discover" onBack={() => setActiveTab("home")} />
       <div style={{ padding: "12px 16px", flexShrink: 0, borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
-        <div style={{ display: "flex", gap: 8 }}>
-          <input style={S.filterInput} placeholder="Course (e.g. CSE)"
-            value={courseFilter} onChange={(e) => setCourseFilter(e.target.value)} />
-          <input style={S.filterInput} placeholder="Year (e.g. 2nd)"
-            value={yearFilter} onChange={(e) => setYearFilter(e.target.value)} />
+        {/* Name search bar */}
+        <div style={{ position: "relative" }}>
+          <Search size={14} style={{
+            position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)",
+            color: "rgba(255,255,255,0.35)", pointerEvents: "none",
+          }} />
+          <input
+            style={{
+              ...S.filterInput,
+              paddingLeft: 34,
+              // FIX 3: 16px prevents iOS zoom on focus
+              fontSize: "16px",
+            }}
+            placeholder="Search by name…"
+            value={nameFilter}
+            onChange={(e) => setNameFilter(e.target.value)}
+            autoComplete="off"
+            autoCorrect="off"
+            spellCheck={false}
+          />
+          {/* Clear button */}
+          {nameFilter && (
+            <button
+              onClick={() => setNameFilter("")}
+              style={{
+                position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)",
+                background: "rgba(255,255,255,0.1)", border: "none", borderRadius: "50%",
+                width: 20, height: 20, cursor: "pointer", color: "rgba(255,255,255,0.5)",
+                display: "flex", alignItems: "center", justifyContent: "center", padding: 0,
+              }}
+            >
+              <X size={11} />
+            </button>
+          )}
         </div>
         <div style={{ fontSize: "0.73rem", color: "rgba(255,255,255,0.33)", marginTop: 8 }}>
-          {discoverUsers.length} students found
+          {filteredDiscoverUsers.length} student{filteredDiscoverUsers.length !== 1 ? "s" : ""} found
+          {nameFilter.trim() && (
+            <span style={{ color: "rgba(255,184,74,0.7)", marginLeft: 4 }}>
+              for "{nameFilter.trim()}"
+            </span>
+          )}
         </div>
       </div>
       <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden", padding: "12px 16px", minHeight: 0 }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {discoverUsers.map((u) => (
+          {filteredDiscoverUsers.map((u) => (
             <UserCard key={u.id} user={u} onAdd={() => void sendFriendRequest(u.id)} />
           ))}
-          {discoverUsers.length === 0 && <div style={S.emptyCard}>No students match your filters.</div>}
+          {filteredDiscoverUsers.length === 0 && (
+            <div style={S.emptyCard}>
+              {nameFilter.trim()
+                ? `No students found matching "${nameFilter.trim()}".`
+                : "No students to discover right now."}
+            </div>
+          )}
         </div>
         <div style={{ height: 20 }} />
       </div>
@@ -715,7 +810,12 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
           <Avatar name={user.fullName} size={74} />
           <div>
             <div style={{ fontSize: "1.1rem", fontWeight: 800, color: "#fff" }}>{user.fullName}</div>
-            <div style={{ fontSize: "0.78rem", color: "rgba(255,255,255,0.4)", marginTop: 3 }}>{user.email}</div>
+            {/* FIX 1: show course/year if available, otherwise don't show email */}
+            {(user as any).course && (user as any).year && (
+              <div style={{ fontSize: "0.78rem", color: "rgba(255,255,255,0.4)", marginTop: 3 }}>
+                {(user as any).course} · {(user as any).year} Year
+              </div>
+            )}
           </div>
           <div style={{
             display: "flex", width: "100%",
@@ -753,7 +853,12 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
                 <Avatar name={req.sender.fullName} size={36} gradient="135deg, #4ee1b7, #1b8a6b" />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: "0.84rem", fontWeight: 700, color: "#fff" }}>{req.sender.fullName}</div>
-                  <div style={{ fontSize: "0.72rem", color: "rgba(255,255,255,0.38)" }}>{req.sender.email}</div>
+                  {/* FIX 1: show course/year for request sender, not email */}
+                  <div style={{ fontSize: "0.72rem", color: "rgba(255,255,255,0.38)" }}>
+                    {(req.sender as any).course && (req.sender as any).year
+                      ? `${(req.sender as any).course} · ${(req.sender as any).year} Year`
+                      : "Campus student"}
+                  </div>
                 </div>
                 <button onClick={() => void acceptRequest(req.id)} style={{
                   background: "linear-gradient(135deg, #4ee1b7, #1b8a6b)",
@@ -812,8 +917,9 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
                   }}><ShieldBan size={14} /></div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: "0.83rem", fontWeight: 700, color: "#fff" }}>{e.user.fullName}</div>
+                    {/* FIX 1: show reason only, no email */}
                     <div style={{ fontSize: "0.72rem", color: "rgba(255,255,255,0.35)" }}>
-                      {e.reason ? `Reason: ${e.reason}` : e.user.email}
+                      {e.reason ? `Reason: ${e.reason}` : "Blocked user"}
                     </div>
                   </div>
                   <button onClick={() => void unblockUser(e.user.id)} style={{
@@ -857,6 +963,10 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
         }
         *{box-sizing:border-box}
         ::-webkit-scrollbar{width:0;background:transparent}
+        /* FIX 3: prevent body scroll which causes keyboard-open layout shift */
+        html,body{height:100%;overflow:hidden;position:fixed;width:100%;}
+        /* FIX 3: 16px minimum on ALL inputs prevents iOS auto-zoom -> focus loss */
+        input,textarea,select{font-size:16px !important;}
       `}</style>
 
       {/* ── ROOT: fixed, no overflow ── */}
@@ -1036,9 +1146,9 @@ const S = {
     border: "2px solid rgba(255,184,74,0.3)",
   },
   filterInput: {
-    flex: 1, padding: "9px 13px", borderRadius: 11,
+    width: "100%", padding: "9px 13px", borderRadius: 11,
     border: "1px solid rgba(255,255,255,0.1)", background: "rgba(255,255,255,0.05)",
-    color: "#fff", fontSize: "0.84rem", outline: "none", minWidth: 0,
+    color: "#fff", outline: "none", boxSizing: "border-box" as const,
   },
   compIcon: {
     width: 36, height: 36, borderRadius: 10, flexShrink: 0,
@@ -1049,7 +1159,7 @@ const S = {
   compInput: {
     flex: 1, background: "rgba(255,255,255,0.07)",
     border: "1px solid rgba(255,255,255,0.1)", borderRadius: 12,
-    padding: "9px 13px", color: "#fff", fontSize: "0.86rem", outline: "none", minWidth: 0,
+    padding: "9px 13px", color: "#fff", outline: "none", minWidth: 0,
   },
   panel: {
     background: "rgba(255,255,255,0.03)",
