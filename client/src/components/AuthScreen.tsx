@@ -191,26 +191,44 @@ export function AuthScreen({ onAuthenticated, isLoggedIn }: AuthScreenProps) {
           flex-direction: column;
         }
 
-        /* ── Full-height main ── */
+        /* ─────────────────────────────────────────
+           DESKTOP LAYOUT
+        ───────────────────────────────────────── */
         .auth-main {
           flex: 1;
           display: flex;
           align-items: stretch;
-          padding: 0;
-          /* subtract header height */
-          min-height: calc(100dvh - 72px);
+          position: relative;
         }
+
+        /* Single back button — absolute top-left on desktop, aligned with navbar */
+        .back-link {
+          position: absolute;
+          top: 20px;
+          left: 28px;
+          z-index: 10;
+          display: inline-flex;
+          align-items: center;
+          gap: 7px;
+          font-size: 13px;
+          font-weight: 500;
+          color: var(--muted);
+          background: none;
+          border: none;
+          cursor: pointer;
+          transition: color 0.15s;
+          padding: 0;
+          text-decoration: none;
+        }
+        .back-link:hover { color: var(--txt); }
 
         .auth-layout {
           display: grid;
           grid-template-columns: 1fr 1fr;
           width: 100%;
-          gap: 0;
-        }
-
-        @media (max-width: 860px) {
-          .auth-layout { grid-template-columns: 1fr; }
-          .auth-aside  { display: none; }
+          max-width: 1200px;
+          margin: 0 auto;
+          min-height: calc(100dvh - 72px);
         }
 
         /* ── LEFT ASIDE ── */
@@ -220,7 +238,7 @@ export function AuthScreen({ onAuthenticated, isLoggedIn }: AuthScreenProps) {
           display: flex;
           flex-direction: column;
           justify-content: center;
-          padding: 48px 52px;
+          padding: 80px 52px 52px;
           gap: 32px;
           position: relative;
           overflow: hidden;
@@ -243,23 +261,6 @@ export function AuthScreen({ onAuthenticated, isLoggedIn }: AuthScreenProps) {
           background: radial-gradient(circle, rgba(255,107,53,0.04) 0%, transparent 70%);
           pointer-events: none;
         }
-
-        .back-link {
-          display: inline-flex;
-          align-items: center;
-          gap: 7px;
-          font-size: 13px;
-          font-weight: 500;
-          color: var(--muted);
-          background: none;
-          border: none;
-          cursor: pointer;
-          transition: color 0.15s;
-          padding: 0;
-          width: fit-content;
-          text-decoration: none;
-        }
-        .back-link:hover { color: var(--txt); }
 
         .aside-eyebrow {
           font-family: var(--fd);
@@ -334,13 +335,9 @@ export function AuthScreen({ onAuthenticated, isLoggedIn }: AuthScreenProps) {
           display: flex;
           flex-direction: column;
           justify-content: center;
-          padding: 40px 52px;
+          padding: 80px 52px 52px;
           overflow-y: auto;
           background: var(--bg);
-        }
-
-        @media (max-width: 860px) {
-          .auth-card { padding: 28px 22px 40px; }
         }
 
         .auth-card-inner {
@@ -350,26 +347,6 @@ export function AuthScreen({ onAuthenticated, isLoggedIn }: AuthScreenProps) {
           display: flex;
           flex-direction: column;
           gap: 20px;
-        }
-
-        /* mobile back link */
-        .mobile-back {
-          display: none;
-        }
-        @media (max-width: 860px) {
-          .mobile-back {
-            display: inline-flex;
-            align-items: center;
-            gap: 7px;
-            font-size: 13px;
-            font-weight: 500;
-            color: var(--muted);
-            background: none;
-            border: none;
-            cursor: pointer;
-            padding: 0;
-            width: fit-content;
-          }
         }
 
         .auth-card-head {}
@@ -421,7 +398,7 @@ export function AuthScreen({ onAuthenticated, isLoggedIn }: AuthScreenProps) {
           font-size: 13px;
           font-weight: 700;
           letter-spacing: -0.01em;
-          padding: 9px 16px;
+          padding: 10px 16px;
           border-radius: 100px;
           border: none;
           background: none;
@@ -434,18 +411,11 @@ export function AuthScreen({ onAuthenticated, isLoggedIn }: AuthScreenProps) {
           color: #08080c;
         }
 
-        /* ── Google first ── */
+        /* ── Google ── */
         .google-section {
           display: flex;
           flex-direction: column;
           gap: 8px;
-        }
-        .google-section-label {
-          font-size: 11px;
-          font-weight: 500;
-          color: var(--muted);
-          text-transform: uppercase;
-          letter-spacing: 0.6px;
         }
         .google-btn-wrap {
           display: flex;
@@ -455,7 +425,7 @@ export function AuthScreen({ onAuthenticated, isLoggedIn }: AuthScreenProps) {
           border: 1px solid var(--line);
           border-radius: 100px;
           padding: 6px 8px;
-          min-height: 48px;
+          min-height: 52px;
           cursor: pointer;
           transition: border-color 0.15s;
         }
@@ -516,9 +486,7 @@ export function AuthScreen({ onAuthenticated, isLoggedIn }: AuthScreenProps) {
           gap: 9px;
           transition: border-color 0.15s;
         }
-        .input-wrap:focus-within {
-          border-color: rgba(212,242,68,0.35);
-        }
+        .input-wrap:focus-within { border-color: rgba(212,242,68,0.35); }
         .input-wrap svg.ico { color: rgba(239,239,239,0.3); flex-shrink: 0; }
         .input-wrap input {
           flex: 1;
@@ -528,7 +496,7 @@ export function AuthScreen({ onAuthenticated, isLoggedIn }: AuthScreenProps) {
           font-family: var(--fb);
           font-size: 14px;
           color: var(--txt);
-          padding: 11px 0;
+          padding: 12px 0;
           min-width: 0;
         }
         .input-wrap input::placeholder { color: rgba(239,239,239,0.25); }
@@ -546,17 +514,12 @@ export function AuthScreen({ onAuthenticated, isLoggedIn }: AuthScreenProps) {
         .otp-status.err { color: #f87171; }
         .otp-status.chk { color: var(--muted); }
 
-        /* two-col grid for reg number + otp */
         .form-grid {
           display: grid;
           grid-template-columns: 1fr 1fr;
           gap: 12px;
         }
-        @media (max-width: 480px) {
-          .form-grid { grid-template-columns: 1fr; }
-        }
 
-        /* otp action row */
         .otp-row {
           display: flex;
           align-items: center;
@@ -585,7 +548,7 @@ export function AuthScreen({ onAuthenticated, isLoggedIn }: AuthScreenProps) {
           background: rgba(212,242,68,0.1);
           border: 1px solid rgba(212,242,68,0.18);
           border-radius: 100px;
-          padding: 7px 14px;
+          padding: 8px 14px;
           cursor: pointer;
           transition: background 0.15s;
           white-space: nowrap;
@@ -594,18 +557,17 @@ export function AuthScreen({ onAuthenticated, isLoggedIn }: AuthScreenProps) {
         .send-otp-btn:hover:not(:disabled) { background: rgba(212,242,68,0.18); }
         .send-otp-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 
-        /* submit */
         .submit-btn {
           display: flex;
           align-items: center;
           justify-content: center;
           gap: 7px;
           width: 100%;
-          padding: 13px 24px;
+          padding: 14px 24px;
           background: var(--acc);
           color: #08080c;
           font-family: var(--fd);
-          font-size: 14px;
+          font-size: 15px;
           font-weight: 900;
           letter-spacing: -0.02em;
           border: none;
@@ -619,7 +581,6 @@ export function AuthScreen({ onAuthenticated, isLoggedIn }: AuthScreenProps) {
         }
         .submit-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
-        /* alerts */
         .alert {
           border-radius: 10px;
           padding: 11px 14px;
@@ -628,20 +589,124 @@ export function AuthScreen({ onAuthenticated, isLoggedIn }: AuthScreenProps) {
         }
         .alert-err { background: rgba(248,113,113,0.08); border: 1px solid rgba(248,113,113,0.18); color: #fca5a5; }
         .alert-ok  { background: rgba(74,222,128,0.08); border: 1px solid rgba(74,222,128,0.18); color: #86efac; }
+
+        /* ─────────────────────────────────────────
+           MOBILE LAYOUT  (≤ 860px)
+           - Login form FIRST (top)
+           - Branding/aside AFTER (below on scroll)
+           - Single back button above form
+           - No duplicate back button
+        ───────────────────────────────────────── */
+        @media (max-width: 860px) {
+          .auth-main {
+            align-items: flex-start;
+          }
+
+          /* Hide the absolute back button on mobile — we show one inside the card */
+          .back-link {
+            display: none;
+          }
+
+          .auth-layout {
+            /* Stack: form first, then aside below */
+            display: flex;
+            flex-direction: column;
+            min-height: auto;
+            width: 100%;
+            max-width: 100%;
+          }
+
+          /* RIGHT card (form) comes first visually */
+          .auth-card {
+            order: 1;
+            padding: 20px 20px 28px;
+            justify-content: flex-start;
+          }
+
+          /* LEFT aside comes second */
+          .auth-aside {
+            order: 2;
+            border-right: none;
+            border-top: 1px solid var(--line);
+            padding: 28px 20px 36px;
+            gap: 24px;
+          }
+
+          .auth-card-inner {
+            max-width: 100%;
+            gap: 16px;
+          }
+
+          /* Mobile back button — shown inside the card, above heading */
+          .mobile-back-btn {
+            display: inline-flex !important;
+          }
+
+          /* Larger touch targets */
+          .auth-tabs button {
+            padding: 11px 16px;
+            font-size: 14px;
+          }
+
+          .input-wrap input {
+            padding: 13px 0;
+            font-size: 15px;
+          }
+
+          .submit-btn {
+            padding: 15px 24px;
+            font-size: 15px;
+          }
+
+          .send-otp-btn {
+            padding: 9px 14px;
+          }
+
+          .form-grid {
+            grid-template-columns: 1fr;
+          }
+
+          .aside-metrics {
+            grid-template-columns: 1fr 1fr;
+          }
+
+          .auth-aside::before,
+          .auth-aside::after {
+            display: none;
+          }
+        }
+
+        /* Mobile back button — hidden on desktop */
+        .mobile-back-btn {
+          display: none;
+          align-items: center;
+          gap: 7px;
+          font-size: 13px;
+          font-weight: 500;
+          color: var(--muted);
+          background: none;
+          border: none;
+          cursor: pointer;
+          padding: 0;
+          width: fit-content;
+          transition: color 0.15s;
+        }
+        .mobile-back-btn:hover { color: var(--txt); }
       `}</style>
 
       <div className="auth-shell">
         <Header isLoggedIn={isLoggedIn} onLogout={() => {}} />
 
         <main className="auth-main">
+          {/* Desktop-only back button — absolute top-left, outside both columns */}
+          <button className="back-link ar" onClick={() => navigate("/")}>
+            <ArrowLeft size={15} /> Back to Home
+          </button>
+
           <div className="auth-layout" ref={authLayoutRef}>
 
             {/* ── LEFT ASIDE ── */}
             <aside className="auth-aside ar">
-              <button className="back-link ar" onClick={() => navigate("/")}>
-                <ArrowLeft size={16} /> Back to Home
-              </button>
-
               <div className="aside-copy ar">
                 <p className="aside-eyebrow">Welcome to LPU TV</p>
                 <h1>
@@ -681,16 +746,16 @@ export function AuthScreen({ onAuthenticated, isLoggedIn }: AuthScreenProps) {
               </div>
             </aside>
 
-            {/* ── RIGHT CARD ── */}
+            {/* ── RIGHT CARD (form — comes FIRST on mobile via order:1) ── */}
             <div className="auth-card">
               <div className="auth-card-inner">
 
-                {/* mobile back */}
-                <button className="mobile-back ar" onClick={() => navigate("/")}>
-                  <ArrowLeft size={16} /> Back to Home
+                {/* Mobile-only back button — single, at top of form */}
+                <button className="mobile-back-btn ar" onClick={() => navigate("/")}>
+                  <ArrowLeft size={15} /> Back to Home
                 </button>
 
-                {/* header */}
+                {/* heading */}
                 <div className="auth-card-head ar">
                   <p className="card-eyebrow">{mode === "register" ? "New Account" : "Sign In"}</p>
                   <h2>{mode === "register" ? "Create account" : "Login to continue"}</h2>
@@ -707,13 +772,18 @@ export function AuthScreen({ onAuthenticated, isLoggedIn }: AuthScreenProps) {
                   </button>
                 </div>
 
-                {/* ── Google FIRST ── */}
+                {/* Google */}
                 <div className="google-section ar">
                   <div className="google-btn-wrap">
                     <div ref={googleButtonRef} style={{ display: "flex", alignItems: "center", justifyContent: "center", width: "100%" }}>
                       {!hasGoogleClientId && (
                         <span className="google-placeholder">
-                          <svg width="18" height="18" viewBox="0 0 18 18"><path d="M17.64 9.2a10.3 10.3 0 0 0-.16-1.84H9v3.48h4.84A4.14 4.14 0 0 1 12.07 13v2.26h2.88A8.78 8.78 0 0 0 17.64 9.2Z" fill="#4285F4"/><path d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.88-2.26a5.4 5.4 0 0 1-8.06-2.85H1.07v2.33A9 9 0 0 0 9 18Z" fill="#34A853"/><path d="M4.02 10.71A5.4 5.4 0 0 1 4.02 7.29V4.96H1.07a9 9 0 0 0 0 8.08l2.95-2.33Z" fill="#FBBC05"/><path d="M9 3.58c1.32 0 2.51.45 3.44 1.35l2.58-2.58A9 9 0 0 0 1.07 4.96L4.02 7.3A5.4 5.4 0 0 1 9 3.58Z" fill="#EA4335"/></svg>
+                          <svg width="18" height="18" viewBox="0 0 18 18">
+                            <path d="M17.64 9.2a10.3 10.3 0 0 0-.16-1.84H9v3.48h4.84A4.14 4.14 0 0 1 12.07 13v2.26h2.88A8.78 8.78 0 0 0 17.64 9.2Z" fill="#4285F4"/>
+                            <path d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.88-2.26a5.4 5.4 0 0 1-8.06-2.85H1.07v2.33A9 9 0 0 0 9 18Z" fill="#34A853"/>
+                            <path d="M4.02 10.71A5.4 5.4 0 0 1 4.02 7.29V4.96H1.07a9 9 0 0 0 0 8.08l2.95-2.33Z" fill="#FBBC05"/>
+                            <path d="M9 3.58c1.32 0 2.51.45 3.44 1.35l2.58-2.58A9 9 0 0 0 1.07 4.96L4.02 7.3A5.4 5.4 0 0 1 9 3.58Z" fill="#EA4335"/>
+                          </svg>
                           {mode === "register" ? "Sign up with Google" : "Sign in with Google"}
                         </span>
                       )}
@@ -835,6 +905,7 @@ export function AuthScreen({ onAuthenticated, isLoggedIn }: AuthScreenProps) {
 
                 {error && <div className="alert alert-err ar">{error}</div>}
                 {info  && <div className="alert alert-ok  ar">{info}</div>}
+
               </div>
             </div>
 
