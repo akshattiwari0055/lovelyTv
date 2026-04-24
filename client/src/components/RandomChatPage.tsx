@@ -145,37 +145,14 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
     setZegoRenderMatch(null);
   }, [match]);
 
-  // Remove Zego's hangup button — it renders as a portal OUTSIDE .rcp-zego-fill
-  useEffect(() => {
-    const RCP_ROOT_SELECTOR = ".rcp-root";
-    const CONTROLS_SELECTOR = ".rcp-controls";
+  // Zego renders its hangup button as a sibling AFTER the video grid, inside the same
+  // parent div as VideoRoom. We use a ref on the vcol to watch only that subtree.
+  const vcolRef = useRef<HTMLDivElement>(null);
 
-    // Inject CSS: kill the Zego bottom bar regardless of where it appears
+  useEffect(() => {
     const style = document.createElement("style");
     style.id = "zego-kill-ui";
     style.textContent = `
-      /* Zego injects a bottom toolbar / hangup button as a sibling or portal.
-         These are elements that sit BETWEEN the video area and our controls bar.
-         Target them by known Zego class fragments. */
-      [class*="ZegoRoom"] [class*="footer"],
-      [class*="ZegoRoom"] [class*="Footer"],
-      [class*="ZegoRoom"] [class*="bottom"],
-      [class*="ZegoRoom"] [class*="Bottom"],
-      [class*="ZegoRoom"] [class*="toolbar"],
-      [class*="ZegoRoom"] [class*="Toolbar"],
-      [class*="ZegoRoom"] [class*="leave"],
-      [class*="ZegoRoom"] [class*="Leave"],
-      [class*="zego"] [class*="footer"],
-      [class*="zego"] [class*="bottom"],
-      [class*="zego"] [class*="toolbar"] {
-        display: none !important;
-        visibility: hidden !important;
-        height: 0 !important;
-        overflow: hidden !important;
-        pointer-events: none !important;
-        opacity: 0 !important;
-      }
-
       /* Zego's video grid should fill its container fully */
       .rcp-zego-fill > div,
       .rcp-zego-fill > div > div {
@@ -190,68 +167,60 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
         height: 100% !important;
         object-fit: cover !important;
       }
+      /* Hide the Zego bottom bar that Zego appends after its video grid */
+      .rcp-vcol-inner > div:not(.rcp-zego-fill):not(.rcp-connecting):not(.rcp-idle):not(.rcp-call-badges):not(.rcp-call-actions):not(.rcp-floats):not(.rcp-swipe-hint) {
+        display: none !important;
+        visibility: hidden !important;
+        pointer-events: none !important;
+        height: 0 !important;
+        overflow: hidden !important;
+        opacity: 0 !important;
+      }
     `;
     if (!document.getElementById("zego-kill-ui")) {
       document.head.appendChild(style);
     }
 
-    // MutationObserver strategy:
-    // Zego's hangup button is rendered as a portal element that is a sibling
-    // of (or appended near) the video container. We identify it by checking
-    // if it contains a button with a phone/hangup SVG path OR red background,
-    // AND it is NOT inside .rcp-controls or .rcp-topbar (our own UI).
-    const OUR_SELECTORS = [".rcp-controls", ".rcp-topbar", ".rcp-sheet", ".rcp-drawer"];
+    const OUR_CLASSES = [
+      "rcp-zego-fill", "rcp-connecting", "rcp-idle", "rcp-call-badges",
+      "rcp-call-actions", "rcp-floats", "rcp-swipe-hint", "rcp-controls",
+      "rcp-topbar", "rcp-sheet", "rcp-drawer", "rcp-toast", "rcp-backdrop",
+    ];
 
-    const isOurElement = (el: HTMLElement): boolean => {
-      return OUR_SELECTORS.some((sel) => el.closest(sel) !== null);
-    };
+    const isOurEl = (el: Element): boolean =>
+      OUR_CLASSES.some((cls) => el.classList.contains(cls) || el.closest("." + cls) !== null);
 
-    const killZegoHangup = () => {
-      // Look for any element containing a button with phone icon SVG that is NOT our UI
-      document.querySelectorAll<HTMLElement>("button, [role='button']").forEach((btn) => {
-        if (isOurElement(btn)) return; // never touch our own buttons
+    const killZegoBar = () => {
+      const vcol = vcolRef.current;
+      if (!vcol) return;
 
-        const svg = btn.querySelector("svg");
-        const innerHTML = btn.innerHTML;
-        // Zego's hangup SVG path typically contains these coordinate fragments
-        const isPhoneIcon =
-          innerHTML.includes("M6.6") ||
-          innerHTML.includes("M20.01") ||
-          innerHTML.includes("phone") ||
-          innerHTML.includes("Phone") ||
-          innerHTML.includes("M22 16.92") ||
-          (svg !== null && btn.title?.toLowerCase().includes("leave")) ||
-          (svg !== null && (btn.getAttribute("aria-label") || "").toLowerCase().includes("leave"));
-
-        const style = window.getComputedStyle(btn);
-        const bg = style.backgroundColor;
-        // Red-ish background: rgb values where R > 180, G < 80, B < 80
-        const isRed = (() => {
-          const m = bg.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
-          if (!m) return false;
-          return parseInt(m[1]) > 160 && parseInt(m[2]) < 90 && parseInt(m[3]) < 90;
-        })();
-
-        if (isPhoneIcon || isRed) {
-          // Hide both the button and its parent container
-          btn.style.setProperty("display", "none", "important");
-          const parent = btn.parentElement;
-          if (parent && !isOurElement(parent)) {
-            parent.style.setProperty("display", "none", "important");
-          }
+      // Any direct child of vcol that is NOT one of our known elements → hide it
+      Array.from(vcol.children).forEach((child) => {
+        if (!isOurEl(child)) {
+          (child as HTMLElement).style.setProperty("display", "none", "important");
+          (child as HTMLElement).style.setProperty("height", "0", "important");
+          (child as HTMLElement).style.setProperty("overflow", "hidden", "important");
+          (child as HTMLElement).style.setProperty("pointer-events", "none", "important");
         }
       });
 
-      // Remove "Media play failed" overlays
+      // Also scan for any button inside vcol that is NOT inside our elements
+      vcol.querySelectorAll<HTMLElement>("button, [role='button']").forEach((btn) => {
+        if (!isOurEl(btn)) {
+          btn.style.setProperty("display", "none", "important");
+          btn.style.setProperty("pointer-events", "none", "important");
+        }
+      });
+
+      // Remove "Media play failed" body-level overlays
       document.body.querySelectorAll<HTMLElement>(":scope > div").forEach((el) => {
         const txt = el.textContent || "";
         if (txt.includes("Media play failed") || txt.includes("Resume")) el.remove();
       });
     };
 
-    // Run immediately and on every DOM change
-    killZegoHangup();
-    const observer = new MutationObserver(killZegoHangup);
+    killZegoBar();
+    const observer = new MutationObserver(killZegoBar);
     observer.observe(document.body, { childList: true, subtree: true });
 
     return () => {
@@ -958,7 +927,8 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
 
           {/* VIDEO COLUMN */}
           <div
-            className="rcp-vcol"
+            ref={vcolRef}
+            className="rcp-vcol rcp-vcol-inner"
             onTouchStart={handleTouchStart}
             onTouchMove={handleTouchMove}
             onTouchEnd={handleTouchEnd}
