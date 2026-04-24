@@ -182,10 +182,20 @@ function MessageBubble({ msg, mine }: { msg: Message; mine: boolean }) {
         color: mine ? "#1a0e00" : "#dde1ec",
         fontSize: "0.86rem", lineHeight: 1.5, wordBreak: "break-word", boxSizing: "border-box",
       }}>
-        {msg.imageUrl && (
-          <img src={msg.imageUrl} alt="img"
-            style={{ maxWidth: "100%", borderRadius: 8, marginBottom: 6, display: "block" }} />
-        )}
+{msg.imageUrl && (
+  <img
+    src={msg.imageUrl}
+    alt="img"
+    style={{
+      width: "100%",
+      maxWidth: "min(260px, 70vw)",  // ✅ prevents large stretching
+      height: "auto",
+      borderRadius: 8,
+      marginBottom: 6,
+      display: "block"
+    }}
+  />
+)}
         {msg.content && <span>{msg.content}</span>}
         <div style={{
           display: "flex", alignItems: "center", gap: 4,
