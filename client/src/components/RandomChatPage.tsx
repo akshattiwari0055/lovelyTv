@@ -12,7 +12,7 @@ import {
   UserPlus,
   X,
   ChevronDown,
-  FlipHorizontal2,
+  SwitchCamera,
 } from "lucide-react";
 import { api } from "../lib/api";
 import { connectSocket, disconnectSocket, getSocket } from "../lib/socket";
@@ -72,10 +72,13 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
   const drawerBodyRef = useRef<HTMLDivElement | null>(null);
   const vcolRef = useRef<HTMLDivElement>(null);
   const previewStreamRef = useRef<MediaStream | null>(null);
+  // Track facingMode for in-call Zego key rotation
+  const facingModeRef = useRef(facingMode);
 
   useEffect(() => { hasStartedRef.current = hasStarted; }, [hasStarted]);
   useEffect(() => { matchRef.current = match; }, [match]);
   useEffect(() => { isMatchingRef.current = isMatching; }, [isMatching]);
+  useEffect(() => { facingModeRef.current = facingMode; }, [facingMode]);
 
   const upcomingPartnerName = match?.partner.fullName?.split(" ")[0] ?? "Someone";
 
@@ -101,6 +104,7 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
   }, [liveMessages]);
 
   // Preview camera (idle screen) — restarts when facingMode changes
+  // This only runs when NOT in a live Zego call
   useEffect(() => {
     if (hasStarted || zegoConnecting || zegoRenderMatch) return;
     let cancelled = false;
@@ -144,6 +148,11 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
     };
   }, [hasStarted, zegoConnecting, zegoRenderMatch, facingMode]);
 
+  // When in a live call and user flips camera: remount VideoRoom by briefly clearing zegoRenderMatch,
+  // then restoring it. This forces Zego to reinitialize with the new facingMode prop.
+  // We track a separate "zegoFacingMode" that VideoRoom consumes so the key changes.
+  const [zegoFacingMode, setZegoFacingMode] = useState<"user" | "environment">("user");
+
   useEffect(() => {
     if (match) { const t = setTimeout(() => setZegoRenderMatch(match), 800); return () => clearTimeout(t); }
     setZegoRenderMatch(null);
@@ -182,7 +191,7 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
         width: 0 !important; height: 0 !important;
         position: absolute !important; z-index: -9999 !important;
       }
-      .rcp-vcol-inner > div:not(.rcp-zego-fill):not(.rcp-connecting):not(.rcp-idle):not(.rcp-call-badges):not(.rcp-call-actions):not(.rcp-floats):not(.rcp-swipe-hint) {
+      .rcp-vcol-inner > div:not(.rcp-zego-fill):not(.rcp-connecting):not(.rcp-idle):not(.rcp-call-badges):not(.rcp-call-badges-incall):not(.rcp-call-actions):not(.rcp-floats):not(.rcp-swipe-hint) {
         display: none !important; visibility: hidden !important; pointer-events: none !important;
         height: 0 !important; overflow: hidden !important; opacity: 0 !important;
       }
@@ -228,7 +237,7 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
       }
     `;
     if (!document.getElementById("zego-kill-ui")) document.head.appendChild(style);
-    const OUR_CLASSES = ["rcp-zego-fill","rcp-connecting","rcp-idle","rcp-call-badges","rcp-call-actions","rcp-floats","rcp-swipe-hint","rcp-controls","rcp-topbar","rcp-sheet","rcp-drawer","rcp-toast","rcp-backdrop"];
+    const OUR_CLASSES = ["rcp-zego-fill","rcp-connecting","rcp-idle","rcp-call-badges","rcp-call-badges-incall","rcp-call-actions","rcp-floats","rcp-swipe-hint","rcp-controls","rcp-topbar","rcp-sheet","rcp-drawer","rcp-toast","rcp-backdrop"];
     const isOurEl = (el: Element): boolean => OUR_CLASSES.some((cls) => el.classList.contains(cls) || el.closest("." + cls) !== null);
     const killZegoBar = () => {
       const vcol = vcolRef.current;
@@ -395,10 +404,31 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
     swipeStartX.current = null; swipeStartY.current = null;
   }
 
+  // --- FIXED CAMERA FLIP ---
+  // During idle preview: just toggle facingMode → preview useEffect restarts with new constraint
+  // During a live call: we force Zego to remount by briefly clearing zegoRenderMatch,
+  //   updating zegoFacingMode, then restoring it — so VideoRoom gets a new key prop.
   function handleFlipCamera() {
     if (isFlipping) return;
     setIsFlipping(true);
-    setFacingMode((prev) => (prev === "user" ? "environment" : "user"));
+
+    const nextFacing = facingMode === "user" ? "environment" : "user";
+    setFacingMode(nextFacing);
+
+    if (isInCall && zegoRenderMatch) {
+      // Stop the Zego room, update the facing mode, then re-render it with the new key
+      setZegoRenderMatch(null);
+      setZegoFacingMode(nextFacing);
+      // Brief pause to let Zego teardown, then remount with new facing
+      window.setTimeout(() => {
+        setZegoRenderMatch(matchRef.current);
+        setIsFlipping(false);
+      }, 600);
+    } else {
+      // Preview mode: the preview useEffect will clear isFlipping when camera opens
+      // but add a safety fallback
+      window.setTimeout(() => setIsFlipping(false), 2000);
+    }
   }
 
   async function handleFriendAction() {
@@ -488,8 +518,8 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
   }
 
   const isInCall = Boolean(match) && !zegoConnecting;
-  // Show flip button when: idle preview (not started, not in zego) OR in an active call
-  const showFlipButton = (!hasStarted && !zegoRenderMatch && !zegoConnecting) || isInCall;
+  // Show flip button when: idle preview OR actively connecting OR in an active call
+  const showFlipButton = !isMatching;
 
   return (
     <>
@@ -521,7 +551,9 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
           height: 100dvh; width: 100%;
           background: var(--bg);
           font-family: var(--font-body);
-          overflow: hidden; position: relative;
+          overflow: hidden;
+          /* REQUIRED: position relative so the portal flip button anchors correctly */
+          position: relative;
           color: var(--text);
         }
 
@@ -705,37 +737,78 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
           font-variant-numeric: tabular-nums;
         }
 
-        /* ── CAMERA FLIP BUTTON ───────────────────── */
-        /* Rendered OUTSIDE rcp-vcol so the Zego button-nuker never touches it */
+        /* ── CAMERA FLIP BUTTON ────────────────────
+           Rendered OUTSIDE rcp-vcol (portalled into rcp-root) so the
+           Zego button-nuker never touches it.
+           Anchored via position:absolute on rcp-root (which has position:relative).
+           On desktop: top-left of the video column (62% wide).
+           On mobile: top-left of the full-width video area.
+        ────────────────────────────────────────── */
         .rcp-flip-btn-portal {
           position: absolute;
-          /* sits just below the topbar (56px) + 14px gap */
-          top: calc(56px + 14px);
+          top: calc(56px + 14px); /* topbar height + gap */
           left: 14px;
           z-index: 200;
           pointer-events: auto;
         }
+
+        /* The pill-style button */
         .rcp-flip-btn {
-          width: 38px; height: 38px; border-radius: 12px;
-          background: rgba(8,11,18,0.55); backdrop-filter: blur(12px);
-          border: 1px solid rgba(241,245,249,0.12);
-          display: flex; align-items: center; justify-content: center;
-          color: rgba(241,245,249,0.75); cursor: pointer;
-          transition: background 0.15s, color 0.15s, transform 0.15s;
+          display: flex; align-items: center; gap: 7px;
+          height: 36px; padding: 0 13px 0 10px;
+          border-radius: 100px;
+          background: rgba(8,11,18,0.62);
+          backdrop-filter: blur(14px) saturate(1.4);
+          border: 1px solid rgba(241,245,249,0.16);
+          color: rgba(241,245,249,0.82);
+          cursor: pointer;
+          font-family: var(--font-head);
+          font-size: 11px; font-weight: 700; letter-spacing: 0.04em;
+          text-transform: uppercase;
+          transition: background 0.18s, border-color 0.18s, color 0.18s, transform 0.12s;
+          user-select: none;
+          -webkit-tap-highlight-color: transparent;
+          white-space: nowrap;
         }
-        .rcp-flip-btn:hover { background: rgba(34,211,238,0.12); color: var(--cyan); border-color: rgba(34,211,238,0.25); }
-        .rcp-flip-btn:active { transform: scale(0.88); }
-        .rcp-flip-btn:disabled { opacity: 0.3; cursor: default; transform: none; }
+        .rcp-flip-btn:hover:not(:disabled) {
+          background: rgba(34,211,238,0.14);
+          border-color: rgba(34,211,238,0.35);
+          color: var(--cyan);
+        }
+        .rcp-flip-btn:active:not(:disabled) {
+          transform: scale(0.93);
+        }
+        .rcp-flip-btn:disabled {
+          opacity: 0.35;
+          cursor: default;
+        }
+
+        /* Dot indicator showing which camera is active */
+        .rcp-flip-dot {
+          width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
+          transition: background 0.25s, box-shadow 0.25s;
+        }
+        .rcp-flip-dot.front {
+          background: var(--violet);
+          box-shadow: 0 0 6px rgba(167,139,250,0.7);
+        }
+        .rcp-flip-dot.back {
+          background: var(--cyan);
+          box-shadow: 0 0 6px rgba(34,211,238,0.7);
+        }
+
+        /* Spinning icon during flip */
         .rcp-flip-icon {
-          transition: transform 0.35s cubic-bezier(0.34,1.56,0.64,1);
+          flex-shrink: 0;
+          transition: transform 0.45s cubic-bezier(0.34,1.56,0.64,1);
         }
         .rcp-flip-btn.flipping .rcp-flip-icon {
-          transform: rotateY(180deg);
+          transform: rotate(180deg);
         }
 
         /* When in-call, badges start after the flip button */
         .rcp-call-badges-incall {
-          position: absolute; top: 14px; left: 62px;
+          position: absolute; top: 14px; left: 66px;
           display: flex; align-items: center; gap: 8px;
           z-index: 5; pointer-events: none;
         }
@@ -1123,6 +1196,23 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
         {actionMessage && match && <div className="rcp-toast">{actionMessage}</div>}
         {connectionIssue && !match && <div className="rcp-toast">{connectionIssue}</div>}
 
+        {/* CAMERA FLIP BUTTON — portalled into rcp-root, never touched by Zego nuker */}
+        {showFlipButton && (
+          <div className="rcp-flip-btn-portal">
+            <button
+              className={`rcp-flip-btn${isFlipping ? " flipping" : ""}`}
+              onClick={handleFlipCamera}
+              disabled={isFlipping}
+              title={facingMode === "user" ? "Switch to back camera" : "Switch to front camera"}
+              aria-label="Flip camera"
+            >
+              <SwitchCamera size={15} className="rcp-flip-icon" />
+              <span className="rcp-flip-dot" style={{ background: facingMode === "user" ? "var(--violet)" : "var(--cyan)", boxShadow: facingMode === "user" ? "0 0 6px rgba(167,139,250,0.7)" : "0 0 6px rgba(34,211,238,0.7)" }} />
+              {isFlipping ? "Switching…" : facingMode === "user" ? "Front" : "Back"}
+            </button>
+          </div>
+        )}
+
         {/* BODY */}
         <div className="rcp-body">
 
@@ -1138,16 +1228,17 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
               : { transform: "translateX(0)", transition: "transform 0.3s ease" }
             }
           >
-            {/* Zego */}
+            {/* Zego — key includes zegoFacingMode so remounting it after a flip works */}
             {zegoRenderMatch && (
               <div className="rcp-zego-fill" style={{ opacity: zegoConnecting ? 0 : 1, transition: "opacity 0.4s ease", zIndex: 1 }}>
                 <VideoRoom
-                  key={zegoRenderMatch.roomId}
+                  key={`${zegoRenderMatch.roomId}-${zegoFacingMode}`}
                   appId={zegoConfig.appId}
                   serverSecret={zegoConfig.serverSecret}
                   roomId={zegoRenderMatch.roomId}
                   userId={user.id}
                   userName={user.fullName}
+                  facingMode={zegoFacingMode}
                   onJoined={() => {
                     window.setTimeout(() => {
                       if (zegoTimeoutRef.current !== null) { window.clearTimeout(zegoTimeoutRef.current); zegoTimeoutRef.current = null; }
@@ -1364,21 +1455,6 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
                 Submit Report
               </button>
             </div>
-          </div>
-        )}
-
-        {/* CAMERA FLIP BUTTON — rendered outside rcp-vcol so Zego nuker never kills it */}
-        {showFlipButton && (
-          <div className="rcp-flip-btn-portal">
-            <button
-              className={`rcp-flip-btn${isFlipping ? " flipping" : ""}`}
-              onClick={handleFlipCamera}
-              disabled={isFlipping}
-              title={facingMode === "user" ? "Switch to back camera" : "Switch to front camera"}
-              aria-label="Flip camera"
-            >
-              <FlipHorizontal2 size={17} className="rcp-flip-icon" />
-            </button>
           </div>
         )}
 
