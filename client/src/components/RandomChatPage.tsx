@@ -347,10 +347,9 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
       setFloatingReactions((c) => [...c, { id, emoji }]);
       window.setTimeout(() => setFloatingReactions((c) => c.filter((r) => r.id !== id)), 2200);
     });
-    // Only add PARTNER messages from socket.
-    // Own messages are added optimistically in sendLiveChatMessage — drop any echo from server.
+    // Server broadcasts match:chat to ALL users in the room (including sender).
+    // So both sender and receiver get this event — no need for optimistic inserts.
     socket.on("match:chat", (payload: LiveChatMessage) => {
-      if (payload.senderId === user.id) return; // server echoed our own message — already shown optimistically
       setLiveMessages((c) => [...c.slice(-19), payload]);
     });
     return () => {
@@ -460,20 +459,10 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
     window.setTimeout(() => setFloatingReactions((c) => c.filter((r) => r.id !== id)), 2200);
   }
 
-  // FIX: Optimistically add own message so it shows immediately without waiting for server echo
   function sendLiveChatMessage(event: FormEvent) {
     event.preventDefault();
     const msg = liveChatInput.trim();
     if (!msg || !match) return;
-
-    const optimisticMsg: LiveChatMessage = {
-      id: `local-${user.id}-${Date.now()}`,
-      message: msg,
-      senderId: user.id,
-      senderName: user.fullName,
-      createdAt: new Date().toISOString(),
-    };
-    setLiveMessages((c) => [...c.slice(-19), optimisticMsg]);
     emit("match:chat", { message: msg });
     setLiveChatInput("");
   }
