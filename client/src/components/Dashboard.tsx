@@ -9,10 +9,15 @@
  *  6. Scroll conflict → userAtBottomRef guards auto-scroll, send skips it
  *  7. Viewport stabilization → #root overflow:hidden in GLOBAL_CSS
  *  8. MessageList padding reduced to minimize vertical shift on keyboard open
- *  9. [NEW] Keyboard dismiss fix → inputRef.current?.focus() called SYNCHRONOUSLY
- *     inside handleSend BEFORE any setState, so the browser never has a chance
- *     to dismiss the software keyboard. Also removed the form onSubmit to avoid
- *     a second synthetic blur that some mobile browsers fire on form submit.
+ *  9. Keyboard dismiss fix → inputRef.current?.focus() called SYNCHRONOUSLY
+ *     inside handleSend BEFORE any setState
+ * 10. [NEW] Real presence tracking → socket emits user:online / user:offline.
+ *     presenceMap tracks { online, lastSeen } per userId.
+ *     Chat header shows "Online" or "Last seen X mins ago" dynamically.
+ *     Avatar green dot only shown when truly online.
+ * 11. [NEW] Unread counts never stale → loadAllUnreads called on mount,
+ *     tab-switch to "messages", visibilitychange (tab regains focus),
+ *     after acceptRequest, and on goBack(). No manual refresh needed.
  */
 
 import {
@@ -37,6 +42,9 @@ import { VideoRoom } from "./VideoRoom";
 type DashboardProps = { token: string; user: User; onLogout: () => void };
 type AppTab = "home" | "discover" | "messages" | "chat" | "profile";
 
+// FIX #10: Real presence info per user
+type PresenceInfo = { online: boolean; lastSeen: number /* epoch ms */ };
+
 function getRoomId(a: string, b: string) {
   const [x, y] = [a, b].sort();
   return `call-${x}-${y}`;
@@ -47,6 +55,22 @@ const fmt = (v: string) =>
 
 const initials = (name: string) =>
   name.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2) ?? "?";
+
+// ─── FIX #10: Last-seen formatter ─────────────────────────────────────────────
+function fmtLastSeen(epochMs: number): string {
+  const diffSec = Math.floor((Date.now() - epochMs) / 1000);
+  if (diffSec < 60) return "Last seen just now";
+  if (diffSec < 3600) {
+    const m = Math.floor(diffSec / 60);
+    return `Last seen ${m} min${m > 1 ? "s" : ""} ago`;
+  }
+  if (diffSec < 86400) {
+    const h = Math.floor(diffSec / 3600);
+    return `Last seen ${h} hr${h > 1 ? "s" : ""} ago`;
+  }
+  const d = Math.floor(diffSec / 86400);
+  return `Last seen ${d} day${d > 1 ? "s" : ""} ago`;
+}
 
 // ─── GLOBAL STYLES ────────────────────────────────────────────────────────────
 const GLOBAL_CSS = `
@@ -69,12 +93,6 @@ const GLOBAL_CSS = `
   ::-webkit-scrollbar { width: 4px; background: transparent; }
   ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 4px; }
 
-  /*
-   * FIX #9 — Critical: prevent iOS Safari from dismissing keyboard.
-   * Setting font-size ≥ 16px stops the auto-zoom that causes a blur+scroll
-   * combo. We need this on BOTH the chat input and every other input to avoid
-   * the page jumping when focus changes between fields.
-   */
   input, textarea, select {
     font-size: 16px !important;
     font-family: 'Figtree', sans-serif;
@@ -158,13 +176,22 @@ const FONT_DISPLAY = "'Outfit', sans-serif";
 const FONT_BODY = "'Figtree', sans-serif";
 
 // ─── UnreadToast ─────────────────────────────────────────────────────────────
-// Shown when a message arrives from a friend who is NOT the currently open chat.
-// Stacks up to 3 toasts, each auto-dismisses after 4 s.
-type ToastEntry = { id: string; senderId: string; senderName: string; preview: string; count: number; exiting: boolean };
+type ToastEntry = {
+  id: string;
+  senderId: string;
+  senderName: string;
+  preview: string;
+  count: number;
+  exiting: boolean;
+};
 
 const UnreadToast = React.memo(function UnreadToast({
   toasts, onOpen, onDismiss,
-}: { toasts: ToastEntry[]; onOpen: (senderId: string) => void; onDismiss: (id: string) => void }) {
+}: {
+  toasts: ToastEntry[];
+  onOpen: (senderId: string) => void;
+  onDismiss: (id: string) => void;
+}) {
   if (toasts.length === 0) return null;
   return (
     <div style={{
@@ -188,7 +215,6 @@ const UnreadToast = React.memo(function UnreadToast({
           }}
           onClick={() => onOpen(t.senderId)}
         >
-          {/* Avatar circle */}
           <div style={{
             width: 36, height: 36, borderRadius: "50%", flexShrink: 0,
             background: "linear-gradient(135deg, #0891b2, #06b6d4)",
@@ -198,8 +224,6 @@ const UnreadToast = React.memo(function UnreadToast({
           }}>
             {t.senderName.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2)}
           </div>
-
-          {/* Text */}
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{
               fontSize: "0.78rem", fontWeight: 700, color: C.text,
@@ -215,8 +239,6 @@ const UnreadToast = React.memo(function UnreadToast({
               {t.preview}
             </div>
           </div>
-
-          {/* Count badge */}
           <div style={{
             background: "linear-gradient(135deg, #6d28d9, #8b5cf6)",
             borderRadius: 100, minWidth: 22, height: 22,
@@ -227,8 +249,6 @@ const UnreadToast = React.memo(function UnreadToast({
           }}>
             +{t.count > 99 ? "99" : t.count}
           </div>
-
-          {/* Dismiss × */}
           <button
             type="button"
             onClick={(e) => { e.stopPropagation(); onDismiss(t.id); }}
@@ -250,7 +270,12 @@ const UnreadToast = React.memo(function UnreadToast({
 // ─── Avatar ───────────────────────────────────────────────────────────────────
 const Avatar = React.memo(function Avatar({
   name, size = 40, color = "violet", online = false,
-}: { name: string; size?: number; color?: "violet" | "cyan" | "pink" | "green"; online?: boolean }) {
+}: {
+  name: string;
+  size?: number;
+  color?: "violet" | "cyan" | "pink" | "green";
+  online?: boolean;
+}) {
   const gradients = {
     violet: "linear-gradient(135deg, #6d28d9, #8b5cf6)",
     cyan:   "linear-gradient(135deg, #0891b2, #06b6d4)",
@@ -289,7 +314,10 @@ function StatPill({ value, label }: { value: string | number; label: string }) {
         fontSize: "1.4rem", fontWeight: 800, color: C.text,
         fontFamily: FONT_DISPLAY, letterSpacing: "-0.03em",
       }}>{value}</div>
-      <div style={{ fontSize: "0.67rem", color: C.textDim, fontWeight: 500, marginTop: 3, textTransform: "uppercase", letterSpacing: "0.1em", fontFamily: FONT_BODY }}>{label}</div>
+      <div style={{
+        fontSize: "0.67rem", color: C.textDim, fontWeight: 500, marginTop: 3,
+        textTransform: "uppercase", letterSpacing: "0.1em", fontFamily: FONT_BODY,
+      }}>{label}</div>
     </div>
   );
 }
@@ -386,9 +414,20 @@ const HeroCard = React.memo(function HeroCard({ onStartRandom }: { onStartRandom
 });
 
 // ─── ChatItem ────────────────────────────────────────────────────────────────
+// FIX #10: accepts presence prop and uses it for the online dot
 const ChatItem = React.memo(function ChatItem({
-  friend, unread, lastMsg, active, onClick, compact = false,
-}: { friend: User; unread: number; lastMsg?: string; active?: boolean; onClick: () => void; compact?: boolean }) {
+  friend, unread, lastMsg, active, onClick, compact = false, presence,
+}: {
+  friend: User;
+  unread: number;
+  lastMsg?: string;
+  active?: boolean;
+  onClick: () => void;
+  compact?: boolean;
+  presence?: PresenceInfo;
+}) {
+  const isOnline = presence?.online ?? false;
+
   return (
     <button
       onClick={onClick}
@@ -413,8 +452,8 @@ const ChatItem = React.memo(function ChatItem({
       }}
     >
       <div style={{ position: "relative", flexShrink: 0 }}>
-        <Avatar name={friend.fullName} size={compact ? 38 : 44} color="cyan" online={unread > 0} />
-        {/* Inline dot badge on avatar for extra visibility */}
+        {/* FIX #10: online dot driven by real presence */}
+        <Avatar name={friend.fullName} size={compact ? 38 : 44} color="cyan" online={isOnline} />
         {unread > 0 && (
           <span
             key={`dot-${unread}`}
@@ -454,7 +493,7 @@ const ChatItem = React.memo(function ChatItem({
         </div>
       </div>
       <div style={{ minWidth: 32, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
-        {unread > 0 ? (
+        {unread > 0 && (
           <span
             style={{
               background: "linear-gradient(135deg, #be185d, #ec4899)",
@@ -470,7 +509,7 @@ const ChatItem = React.memo(function ChatItem({
           >
             {unread > 99 ? "99+" : unread}
           </span>
-        ) : null}
+        )}
       </div>
     </button>
   );
@@ -622,18 +661,13 @@ const MessageList = React.memo(function MessageList({
 });
 
 // ─── ChatInput ────────────────────────────────────────────────────────────────
-// FIX #9: ChatInput is a controlled, memoized component.
-// The send button uses type="button" (NOT type="submit") to avoid form submission
-// which causes a blur event on some mobile browsers. We also removed the <form>
-// onSubmit entirely — the send action fires only through onClick / Enter key
-// which is handled imperatively in the parent via handleSend.
 interface ChatInputProps {
   value: string;
   imagePreview: string | null;
   inputRef: React.RefObject<HTMLInputElement>;
   fileRef: React.RefObject<HTMLInputElement>;
   onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
-  onSend: () => void;          // FIX #9: plain void, not FormEvent
+  onSend: () => void;
   onImageUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onClearImage: () => void;
 }
@@ -644,8 +678,6 @@ const ChatInput = React.memo(function ChatInput({
 }: ChatInputProps) {
   const hasContent = value.trim() || imagePreview;
 
-  // FIX #9: Handle Enter key directly on the input so we can call focus()
-  // imperatively before anything else in the send flow.
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -672,17 +704,15 @@ const ChatInput = React.memo(function ChatInput({
           </button>
         </div>
       )}
-      {/* FIX #9: No <form> wrapper — form submit triggers blur on iOS Safari */}
-      <div
-        style={{
-          display: "flex", alignItems: "center", gap: 8,
-          padding: "12px 16px",
-          paddingBottom: "calc(12px + env(safe-area-inset-bottom, 0px))",
-          flexShrink: 0,
-          borderTop: `1px solid ${C.border}`,
-          background: C.bg,
-        }}
-      >
+      {/* No <form> wrapper — form submit triggers blur on iOS Safari */}
+      <div style={{
+        display: "flex", alignItems: "center", gap: 8,
+        padding: "12px 16px",
+        paddingBottom: "calc(12px + env(safe-area-inset-bottom, 0px))",
+        flexShrink: 0,
+        borderTop: `1px solid ${C.border}`,
+        background: C.bg,
+      }}>
         <input type="file" accept="image/*" style={{ display: "none" }} ref={fileRef} onChange={onImageUpload} />
         <button
           type="button"
@@ -702,9 +732,7 @@ const ChatInput = React.memo(function ChatInput({
             flex: 1, background: C.surfaceAlt, border: `1px solid ${C.border}`,
             borderRadius: 12, padding: "10px 14px",
             color: C.text, outline: "none", minWidth: 0, fontFamily: FONT_BODY,
-            transition: "border-color 0.2s",
-            // FIX #9: font-size 16px prevents iOS auto-zoom which causes blur
-            fontSize: "16px",
+            transition: "border-color 0.2s", fontSize: "16px",
           }}
           onFocus={e => e.currentTarget.style.borderColor = C.borderGlow}
           onBlur={e => e.currentTarget.style.borderColor = C.border}
@@ -779,20 +807,40 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
     typeof window !== "undefined" ? window.innerWidth >= 1024 : false
   );
 
-  // Keep a ref to messageInput so handleSend (memoized) can read the latest value
-  // without needing to be recreated every keystroke.
+  // ── FIX #10: Real presence map ────────────────────────────────────────────
+  // Keyed by userId. Updated by socket events user:online / user:offline.
+  // Seeded from REST /presence on mount (optional endpoint).
+  const [presenceMap, setPresenceMap] = useState<Record<string, PresenceInfo>>({});
+
+  // Tick every 60 s so "Last seen X mins ago" label stays current
+  const [, setPresenceTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setPresenceTick(t => t + 1), 60_000);
+    return () => clearInterval(id);
+  }, []);
+
+  // Stable refs for values read inside memoised callbacks
   const messageInputRef = useRef(messageInput);
   useEffect(() => { messageInputRef.current = messageInput; }, [messageInput]);
 
   const imagePreviewRef = useRef(imagePreview);
   useEffect(() => { imagePreviewRef.current = imagePreview; }, [imagePreview]);
 
-  // ─── Toast helpers ────────────────────────────────────────────────────────
   const friendsRef = useRef(friends);
   useEffect(() => { friendsRef.current = friends; }, [friends]);
 
+  const selectedFriendRef = useRef(selectedFriend);
+  useEffect(() => { selectedFriendRef.current = selectedFriend; }, [selectedFriend]);
+
+  const conversationIsOpen = activeTab === "chat" && !!selectedFriend;
+  const conversationIsOpenRef = useRef(conversationIsOpen);
+  useEffect(() => { conversationIsOpenRef.current = conversationIsOpen; }, [conversationIsOpen]);
+
+  const selectedFriendIdRef = useRef<string | undefined>(undefined);
+  useEffect(() => { selectedFriendIdRef.current = selectedFriend?.id; }, [selectedFriend?.id]);
+
+  // ─── Toast helpers ────────────────────────────────────────────────────────
   const dismissToast = useCallback((toastId: string) => {
-    // Start exit animation, then remove
     setMsgToasts(prev => prev.map(t => t.id === toastId ? { ...t, exiting: true } : t));
     setTimeout(() => setMsgToasts(prev => prev.filter(t => t.id !== toastId)), 300);
     if (toastTimers.current[toastId]) {
@@ -803,17 +851,14 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
 
   const showToast = useCallback((senderId: string, senderName: string, preview: string, newCount: number) => {
     const toastId = `toast-${senderId}`;
-    // If toast for this sender already exists, update count + reset timer
     setMsgToasts(prev => {
       const existing = prev.find(t => t.id === toastId);
       if (existing) {
         return prev.map(t => t.id === toastId ? { ...t, count: newCount, preview, exiting: false } : t);
       }
-      // Max 3 toasts — drop oldest
       const trimmed = prev.length >= 3 ? prev.slice(1) : prev;
       return [...trimmed, { id: toastId, senderId, senderName, preview, count: newCount, exiting: false }];
     });
-    // Reset auto-dismiss timer
     if (toastTimers.current[toastId]) clearTimeout(toastTimers.current[toastId]);
     toastTimers.current[toastId] = setTimeout(() => dismissToast(toastId), 4000);
   }, [dismissToast]);
@@ -823,8 +868,6 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
     [unreadCounts]
   );
 
-  const conversationIsOpen = activeTab === "chat" && !!selectedFriend;
-
   const filteredDiscoverUsers = useMemo(
     () => nameFilter.trim()
       ? discoverUsers.filter((u) => u.fullName.toLowerCase().includes(nameFilter.trim().toLowerCase()))
@@ -832,14 +875,83 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
     [discoverUsers, nameFilter]
   );
 
-  const selectedFriendRef = useRef(selectedFriend);
-  const conversationIsOpenRef = useRef(conversationIsOpen);
-  useEffect(() => { selectedFriendRef.current = selectedFriend; }, [selectedFriend]);
-  useEffect(() => { conversationIsOpenRef.current = conversationIsOpen; }, [conversationIsOpen]);
+  // ─── Data loaders ─────────────────────────────────────────────────────────
+  async function loadDiscover() {
+    const r = await api.get("/discover");
+    setDiscoverUsers(r.data);
+  }
 
-  // ─── Socket ──────────────────────────────────────────────────────────────
+  async function loadFriends() {
+    const r = await api.get("/friends");
+    const friendList: User[] = r.data;
+    setFriends(friendList);
+    return friendList;
+  }
+
+  async function loadRequests() {
+    const r = await api.get("/friend-requests");
+    setRequests(r.data);
+  }
+
+  async function loadBlockedUsers() {
+    const r = await api.get("/blocked-users");
+    setBlockedUsers(r.data);
+  }
+
+  // ── FIX #11: loadAllUnreads — single source of truth for badge counts ─────
+  // Fetches every conversation from the server and overwrites local counts.
+  // This means counts are always accurate regardless of missed socket events.
+  async function loadAllUnreads(friendList: User[]) {
+    if (friendList.length === 0) return;
+    const results = await Promise.allSettled(
+      friendList.map(f => api.get(`/messages/${f.id}`))
+    );
+    const counts: Record<string, number> = {};
+    const lastMsgs: Record<string, string> = {};
+    results.forEach((res, i) => {
+      if (res.status !== "fulfilled") return;
+      const msgs: Message[] = res.value.data.messages;
+      const friendId = friendList[i].id;
+      counts[friendId] = msgs.filter(m => m.senderId === friendId && !m.isRead).length;
+      const last = msgs[msgs.length - 1];
+      if (last?.content) lastMsgs[friendId] = last.content;
+    });
+    setUnreadCounts(prev => {
+      const merged = { ...prev, ...counts };
+      // Keep currently-open chat at 0 — user can see those messages
+      const openId = selectedFriendRef.current?.id;
+      if (openId && conversationIsOpenRef.current) merged[openId] = 0;
+      return merged;
+    });
+    setLastMessages(prev => ({ ...prev, ...lastMsgs }));
+  }
+
+  async function loadConvo(otherId: string, markRead = false) {
+    const r = await api.get(`/messages/${otherId}`);
+    const msgs: Message[] = r.data.messages;
+    setMessages(msgs);
+    const last = msgs[msgs.length - 1];
+    if (last?.content) setLastMessages((c) => ({ ...c, [otherId]: last.content! }));
+    const unread = msgs.filter((m) => m.senderId === otherId && !m.isRead).map((m) => m.id);
+    if (markRead && unread.length > 0) {
+      getSocket()?.emit("message:read", { messageIds: unread, senderId: otherId });
+      setMessages((c) => c.map((m) => unread.includes(m.id) ? { ...m, isRead: true } : m));
+    }
+    if (markRead) {
+      setUnreadCounts((c) => ({ ...c, [otherId]: 0 }));
+    } else {
+      setUnreadCounts((c) => ({ ...c, [otherId]: unread.length }));
+    }
+    userAtBottomRef.current = true;
+    setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "auto" }), 50);
+  }
+
+  // ─── Socket setup ─────────────────────────────────────────────────────────
   useEffect(() => {
     const socket = connectSocket(token);
+
+    // FIX #10: Announce we're online immediately
+    socket.emit("user:online", { userId: user.id });
 
     socket.on("message:new", (msg: Message) => {
       setMessages((c) => (c.some((e) => e.id === msg.id) ? c : [...c, msg]));
@@ -854,7 +966,6 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
       } else if (msg.senderId !== user.id) {
         setUnreadCounts((prev) => {
           const newCount = Math.min((prev[msg.senderId] ?? 0) + 1, 99);
-          // Show WhatsApp-style toast for the incoming message
           const sender = friendsRef.current.find(f => f.id === msg.senderId);
           const senderName = sender?.fullName ?? "Someone";
           const preview = msg.content
@@ -869,12 +980,32 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
     socket.on("message:read:update", ({ messageIds }: { messageIds: string[] }) => {
       setMessages((c) => c.map((m) => messageIds.includes(m.id) ? { ...m, isRead: true } : m));
     });
+
     socket.on("typing:started", ({ typerId }: { typerId: string }) => {
       if (selectedFriendRef.current?.id === typerId) setPartnerTyping(true);
     });
     socket.on("typing:stopped", ({ typerId }: { typerId: string }) => {
       if (selectedFriendRef.current?.id === typerId) setPartnerTyping(false);
     });
+
+    // ── FIX #10: Presence events from server ──────────────────────────────
+    // Your server should broadcast these to all friends of the user.
+    // user:online payload  → { userId: string }
+    // user:offline payload → { userId: string; lastSeen?: number }
+    socket.on("user:online", ({ userId }: { userId: string }) => {
+      setPresenceMap(prev => ({
+        ...prev,
+        [userId]: { online: true, lastSeen: Date.now() },
+      }));
+    });
+
+    socket.on("user:offline", ({ userId, lastSeen }: { userId: string; lastSeen?: number }) => {
+      setPresenceMap(prev => ({
+        ...prev,
+        [userId]: { online: false, lastSeen: lastSeen ?? prev[userId]?.lastSeen ?? Date.now() },
+      }));
+    });
+
     socket.on("call:incoming", (p: typeof incomingCall) => setIncomingCall(p));
     socket.on("call:accepted", ({ roomId }: { roomId: string }) => {
       setOutgoingCall((cur) => {
@@ -888,30 +1019,78 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
       void Promise.all([loadFriends(), loadRequests()]);
     });
 
+    // ── FIX #11: Re-sync unread counts when tab regains focus ────────────
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") {
+        // Re-announce presence
+        socket.emit("user:online", { userId: user.id });
+        // Re-sync unread counts — catches messages received while tab was hidden
+        void loadAllUnreads(friendsRef.current);
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+
+    // Announce offline before page unload
+    const handleUnload = () => {
+      socket.emit("user:offline", { userId: user.id, lastSeen: Date.now() });
+    };
+    window.addEventListener("beforeunload", handleUnload);
+
     return () => {
-      ["message:new","message:read:update","typing:started","typing:stopped",
-       "call:incoming","call:accepted","call:declined","notification:new"]
-        .forEach((e) => socket.off(e));
+      socket.emit("user:offline", { userId: user.id, lastSeen: Date.now() });
+      document.removeEventListener("visibilitychange", handleVisibility);
+      window.removeEventListener("beforeunload", handleUnload);
+      [
+        "message:new", "message:read:update", "typing:started", "typing:stopped",
+        "call:incoming", "call:accepted", "call:declined", "notification:new",
+        "user:online", "user:offline",
+      ].forEach((e) => socket.off(e));
       disconnectSocket();
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, user.id]);
 
+  // ─── Mount: load all data ─────────────────────────────────────────────────
   useEffect(() => {
-    void Promise.all([
-      loadDiscover(), loadFriends(), loadRequests(), loadBlockedUsers(),
-      api.get("/zego-config").then((r) => setZegoConfig(r.data)),
-    ]);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    void (async () => {
+      const [friendList] = await Promise.all([
+        loadFriends(),
+        loadDiscover(),
+        loadRequests(),
+        loadBlockedUsers(),
+        api.get("/zego-config").then((r) => setZegoConfig(r.data)),
+        // FIX #10: Seed presence from REST (server returns Record<userId, PresenceInfo>)
+        // This is optional — falls back gracefully if endpoint doesn't exist yet.
+        api.get("/presence").then((r) => {
+          if (r.data && typeof r.data === "object") setPresenceMap(r.data);
+        }).catch(() => {}),
+      ]);
+      // FIX #11: Initial unread count load
+      if (friendList) void loadAllUnreads(friendList);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // ─── Open conversation ────────────────────────────────────────────────────
   useEffect(() => {
     if (!selectedFriend) return;
     getSocket()?.emit("join:conversation", { otherUserId: selectedFriend.id });
     void loadConvo(selectedFriend.id, conversationIsOpen && document.visibilityState === "visible");
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedFriend?.id, conversationIsOpen]);
 
+  // ── FIX #11: Re-sync unread counts on every tab switch to "messages" ──────
+  const prevTabRef = useRef<AppTab>(activeTab);
+  useEffect(() => {
+    const prev = prevTabRef.current;
+    prevTabRef.current = activeTab;
+    if (activeTab === "messages" && prev !== "messages" && friendsRef.current.length > 0) {
+      void loadAllUnreads(friendsRef.current);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]);
+
+  // ─── Scroll helpers ───────────────────────────────────────────────────────
   const handleMessageScroll = useCallback(() => {
     const el = bottomRef.current?.parentElement;
     if (!el) return;
@@ -921,11 +1100,9 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
   useEffect(() => {
     if (isSendingRef.current) return;
     if (!userAtBottomRef.current) return;
-
     const timer = setTimeout(() => {
       bottomRef.current?.scrollIntoView({ behavior: "smooth" });
     }, 250);
-
     return () => clearTimeout(timer);
   }, [messages]);
 
@@ -941,80 +1118,26 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
     return () => window.removeEventListener("resize", onResize);
   }, []);
 
-  async function loadDiscover() { const r = await api.get("/discover"); setDiscoverUsers(r.data); }
-  async function loadFriends() {
-    const r = await api.get("/friends");
-    const friendList: User[] = r.data;
-    setFriends(friendList);
-    // After loading friends, fetch unread counts for all conversations in parallel
-    // so badges show immediately on app open — never rely solely on socket events
-    void loadAllUnreads(friendList);
-    return friendList;
-  }
-  async function loadRequests() { const r = await api.get("/friend-requests"); setRequests(r.data); }
-  async function loadBlockedUsers() { const r = await api.get("/blocked-users"); setBlockedUsers(r.data); }
-
-  async function loadAllUnreads(friendList: User[]) {
-    // Fetch each conversation silently and count unread messages from others
-    // Uses Promise.allSettled so one failure doesn't block the rest
-    const results = await Promise.allSettled(
-      friendList.map(f => api.get(`/messages/${f.id}`))
-    );
-    const counts: Record<string, number> = {};
-    const lastMsgs: Record<string, string> = {};
-    results.forEach((res, i) => {
-      if (res.status !== "fulfilled") return;
-      const msgs: Message[] = res.value.data.messages;
-      const friendId = friendList[i].id;
-      // Count unread messages received from this friend
-      counts[friendId] = msgs.filter(m => m.senderId === friendId && !m.isRead).length;
-      // Also grab last message preview
-      const last = msgs[msgs.length - 1];
-      if (last?.content) lastMsgs[friendId] = last.content;
-    });
-    setUnreadCounts(prev => ({ ...prev, ...counts }));
-    setLastMessages(prev => ({ ...prev, ...lastMsgs }));
-  }
-
-  async function loadConvo(otherId: string, markRead = false) {
-    const r = await api.get(`/messages/${otherId}`);
-    const msgs: Message[] = r.data.messages;
-    setMessages(msgs);
-    const last = msgs[msgs.length - 1];
-    if (last?.content) setLastMessages((c) => ({ ...c, [otherId]: last.content! }));
-    const unread = msgs.filter((m) => m.senderId === otherId && !m.isRead).map((m) => m.id);
-    if (markRead && unread.length > 0) {
-      getSocket()?.emit("message:read", { messageIds: unread, senderId: otherId });
-      setMessages((c) => c.map((m) => unread.includes(m.id) ? { ...m, isRead: true } : m));
-    }
-    // FIX: Only zero the count when actually marking as read (chat is open).
-    // If markRead=false (background load), preserve existing unread count.
-    if (markRead) {
-      setUnreadCounts((c) => ({ ...c, [otherId]: 0 }));
-    } else {
-      // Update with fresh count from server without zeroing
-      setUnreadCounts((c) => ({ ...c, [otherId]: unread.length }));
-    }
-    userAtBottomRef.current = true;
-    setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "auto" }), 50);
-  }
-
+  // ─── Actions ──────────────────────────────────────────────────────────────
   const sendFriendRequest = useCallback(async (id: string) => {
     await api.post("/friend-requests", { receiverId: id });
     void loadDiscover();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const acceptRequest = useCallback(async (id: string) => {
     await api.post(`/friend-requests/${id}/accept`);
-    await Promise.all([loadFriends(), loadRequests()]);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    const friendList = await loadFriends();
+    await loadRequests();
+    // FIX #11: Re-sync after friend list grows
+    if (friendList) void loadAllUnreads(friendList);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const unblockUser = useCallback(async (uid: string) => {
     await api.delete(`/users/${uid}/block`);
     await Promise.all([loadBlockedUsers(), loadDiscover(), loadFriends(), loadRequests()]);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const openChat = useCallback((friend: User) => {
@@ -1022,13 +1145,18 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
     setMessages([]);
     setActiveTab("chat");
     setUnreadCounts((c) => ({ ...c, [friend.id]: 0 }));
-    // Dismiss any toast for this friend immediately
     dismissToast(`toast-${friend.id}`);
   }, [dismissToast]);
 
   function goBack() {
-    if (activeTab === "chat") { setSelectedFriend(null); setActiveTab("messages"); }
-    else setActiveTab("home");
+    if (activeTab === "chat") {
+      setSelectedFriend(null);
+      setActiveTab("messages");
+      // FIX #11: Re-sync when returning to message list
+      void loadAllUnreads(friendsRef.current);
+    } else {
+      setActiveTab("home");
+    }
   }
 
   function startCall(isVideo: boolean) {
@@ -1053,62 +1181,29 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
     setIncomingCall(null);
   }
 
-  const selectedFriendIdRef = useRef<string | undefined>(undefined);
-  useEffect(() => { selectedFriendIdRef.current = selectedFriend?.id; }, [selectedFriend?.id]);
-
-  // ─── FIX #9 — handleSend: keep keyboard open on mobile ───────────────────
-  //
-  // Root cause: any setState() call during/after a touch event can cause React
-  // to re-render ChatInput. If the send button's mousedown/touchstart briefly
-  // moves focus away from the input, iOS Safari dismisses the keyboard. By the
-  // time React re-renders, the input is no longer focused.
-  //
-  // Solution:
-  //   1. Call inputRef.current.focus() FIRST — synchronously, before any state
-  //      mutation — so the browser's focus never leaves the input.
-  //   2. Read input value from a ref (messageInputRef) instead of closure state,
-  //      so this callback never needs to be recreated (stable reference = no
-  //      ChatInput re-mount).
-  //   3. Clear via setMessageInput("") AFTER emitting, keeping the single
-  //      controlled-input contract intact.
-  //   4. Lock isSendingRef for 300ms to suppress the scroll-into-view that
-  //      would otherwise fight the keyboard animation.
-  //
+  // ─── handleSend — keeps keyboard open on mobile ───────────────────────────
   const handleSend = useCallback(() => {
     const friendId = selectedFriendIdRef.current;
     const text = messageInputRef.current;
     const img = imagePreviewRef.current;
-
     if (!friendId || (!text.trim() && !img)) return;
-
-    // ── Step 1: Re-focus BEFORE any state mutation ─────────────────────────
-    // This is the critical line. Calling focus() synchronously within the same
-    // event-loop tick as the user interaction keeps the software keyboard up on
-    // iOS Safari and Android Chrome.
+    // Step 1: Re-focus BEFORE any state mutation to keep keyboard up on iOS
     compInputRef.current?.focus();
-
-    // ── Step 2: Lock scroll during keyboard animation ──────────────────────
+    // Step 2: Lock scroll during keyboard animation
     isSendingRef.current = true;
     setTimeout(() => { isSendingRef.current = false; }, 300);
-
-    // ── Step 3: Emit & clear state ─────────────────────────────────────────
-    getSocket()?.emit("message:send", {
-      receiverId: friendId,
-      content: text,
-      imageUrl: img,
-    });
+    // Step 3: Emit & clear
+    getSocket()?.emit("message:send", { receiverId: friendId, content: text, imageUrl: img });
     getSocket()?.emit("typing:stop", { receiverId: friendId });
-
     setMessageInput("");
     setImagePreview(null);
-
-    // ── Step 4: Scroll after lock expires ─────────────────────────────────
+    // Step 4: Scroll after lock expires
     setTimeout(() => {
       userAtBottomRef.current = true;
       bottomRef.current?.scrollIntoView({ behavior: "smooth" });
     }, 320);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // stable — reads all mutable values via refs
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleTyping = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     setMessageInput(e.target.value);
@@ -1123,7 +1218,7 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
       isTypingRef.current = false;
       getSocket()?.emit("typing:stop", { receiverId: friendId });
     }, 2000);
-  }, []); // stable — never recreated
+  }, []);
 
   const handleImgUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -1135,35 +1230,70 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
 
   const handleClearImage = useCallback(() => setImagePreview(null), []);
 
+  const openChatCallbacks = useMemo(
+    () => Object.fromEntries(friends.map(f => [f.id, () => openChat(f)])),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [friends.map(f => f.id).join(",")]
+  );
+
+  const handleOpenToast = useCallback((senderId: string) => {
+    const friend = friendsRef.current.find(f => f.id === senderId);
+    if (friend) openChat(friend);
+  }, [openChat]);
+
   // ─── Sidebar item renderer ────────────────────────────────────────────────
-  function renderSidebarItem({ id, label, icon, badge }: { id: AppTab; label: string; icon: React.ReactNode; badge?: number }) {
-    const active = id === "messages" ? (activeTab === "messages" || activeTab === "chat") : activeTab === id;
+  function renderSidebarItem({
+    id, label, icon, badge,
+  }: { id: AppTab; label: string; icon: React.ReactNode; badge?: number }) {
+    const active = id === "messages"
+      ? (activeTab === "messages" || activeTab === "chat")
+      : activeTab === id;
     return (
-      <button className="sidebar-btn" onClick={() => { if (id === "messages") setSelectedFriend(null); setActiveTab(id); }} style={{
-        display: "flex", alignItems: "center", gap: 12,
-        padding: "10px 14px", borderRadius: 11, width: "100%",
-        background: active ? "rgba(139,92,246,0.1)" : "transparent",
-        border: active ? `1px solid rgba(139,92,246,0.2)` : "1px solid transparent",
-        color: active ? C.accentBright : C.textMuted,
-        cursor: "pointer", textAlign: "left",
-        fontFamily: FONT_BODY, fontSize: "0.88rem", fontWeight: active ? 600 : 400,
-        transition: "all 0.15s", position: "relative",
-      }}>
+      <button
+        className="sidebar-btn"
+        onClick={() => { if (id === "messages") setSelectedFriend(null); setActiveTab(id); }}
+        style={{
+          display: "flex", alignItems: "center", gap: 12,
+          padding: "10px 14px", borderRadius: 11, width: "100%",
+          background: active ? "rgba(139,92,246,0.1)" : "transparent",
+          border: active ? `1px solid rgba(139,92,246,0.2)` : "1px solid transparent",
+          color: active ? C.accentBright : C.textMuted,
+          cursor: "pointer", textAlign: "left",
+          fontFamily: FONT_BODY, fontSize: "0.88rem", fontWeight: active ? 600 : 400,
+          transition: "all 0.15s", position: "relative",
+        }}
+      >
         <span style={{ opacity: active ? 1 : 0.6 }}>{icon}</span>
         <span>{label}</span>
         {badge && badge > 0 ? (
-          <span style={{ marginLeft: "auto", background: C.accentPink, color: "#fff", fontSize: "0.6rem", fontWeight: 800, padding: "1px 6px", borderRadius: 100, fontFamily: FONT_DISPLAY }}>{badge > 99 ? "99+" : badge}</span>
+          <span style={{
+            marginLeft: "auto", background: C.accentPink, color: "#fff",
+            fontSize: "0.6rem", fontWeight: 800, padding: "1px 6px",
+            borderRadius: 100, fontFamily: FONT_DISPLAY,
+          }}>{badge > 99 ? "99+" : badge}</span>
         ) : null}
       </button>
     );
   }
 
-  function renderSectionTitle({ title, action, onAction }: { title: string; action?: string; onAction?: () => void }) {
+  function renderSectionTitle({ title, action, onAction }: {
+    title: string; action?: string; onAction?: () => void;
+  }) {
     return (
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
-        <h2 style={{ fontSize: "0.72rem", fontWeight: 700, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.14em", fontFamily: FONT_DISPLAY }}>{title}</h2>
+        <h2 style={{
+          fontSize: "0.72rem", fontWeight: 700, color: C.textDim,
+          textTransform: "uppercase", letterSpacing: "0.14em", fontFamily: FONT_DISPLAY,
+        }}>{title}</h2>
         {action && (
-          <button onClick={onAction} style={{ fontSize: "0.77rem", fontWeight: 600, color: C.accent, background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 4, fontFamily: FONT_BODY }}>
+          <button
+            onClick={onAction}
+            style={{
+              fontSize: "0.77rem", fontWeight: 600, color: C.accent,
+              background: "none", border: "none", cursor: "pointer",
+              display: "flex", alignItems: "center", gap: 4, fontFamily: FONT_BODY,
+            }}
+          >
             {action} <ChevronRight size={12} />
           </button>
         )}
@@ -1171,14 +1301,10 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
     );
   }
 
-  const openChatCallbacks = useMemo(
-    () => Object.fromEntries(friends.map(f => [f.id, () => openChat(f)])),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [friends.map(f => f.id).join(",")]
-  );
+  // ─── Tab content renderers ────────────────────────────────────────────────
 
-  // ─── Content renderers ───────────────────────────────────────────────────
   function renderHomeContent() {
+    const onlineCount = Object.values(presenceMap).filter(p => p.online).length;
     return (
       <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden", padding: isDesktop ? "32px 36px" : 20, minHeight: 0 }}>
         <HeroCard onStartRandom={() => navigate("/app/random")} />
@@ -1197,14 +1323,24 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
             {friends.length > 0 && (
               <div style={{ marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}>
                 <span style={{ width: 7, height: 7, borderRadius: "50%", background: C.accentGreen, display: "inline-block", animation: "blink 1.5s infinite" }} />
-                <span style={{ fontSize: "0.73rem", color: C.accentGreen, fontWeight: 600, fontFamily: FONT_BODY }}>{friends.length} Online</span>
+                {/* FIX #10: Show actual online count */}
+                <span style={{ fontSize: "0.73rem", color: C.accentGreen, fontWeight: 600, fontFamily: FONT_BODY }}>
+                  {onlineCount} Online
+                </span>
               </div>
             )}
             <div style={{ background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 16, overflow: "hidden" }}>
               {friends.length === 0
                 ? <div style={{ padding: 24, textAlign: "center", color: C.textDim, fontSize: "0.84rem", fontFamily: FONT_BODY }}>Add friends to start chatting</div>
                 : friends.slice(0, 6).map((f) => (
-                    <ChatItem key={f.id} friend={f} unread={unreadCounts[f.id] ?? 0} lastMsg={lastMessages[f.id]} onClick={openChatCallbacks[f.id] ?? (() => openChat(f))} compact />
+                    <ChatItem
+                      key={f.id} friend={f}
+                      unread={unreadCounts[f.id] ?? 0}
+                      lastMsg={lastMessages[f.id]}
+                      onClick={openChatCallbacks[f.id] ?? (() => openChat(f))}
+                      compact
+                      presence={presenceMap[f.id]}
+                    />
                   ))
               }
             </div>
@@ -1220,10 +1356,15 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
       <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
         <div style={{ padding: "20px 24px 16px", borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
           <h2 style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, fontSize: "1.2rem", color: C.text, letterSpacing: "-0.02em" }}>Inbox</h2>
-          <p style={{ fontFamily: FONT_BODY, fontSize: "0.78rem", color: C.accentGreen, marginTop: 2, fontWeight: 500 }}>{friends.length} conversations</p>
+          <p style={{ fontFamily: FONT_BODY, fontSize: "0.78rem", color: C.accentGreen, marginTop: 2, fontWeight: 500 }}>
+            {friends.length} conversations
+          </p>
         </div>
         {requests.length > 0 && (
-          <button onClick={() => setActiveTab("profile")} style={{ display: "flex", alignItems: "center", gap: 12, width: "100%", padding: "12px 24px", background: "rgba(139,92,246,0.05)", border: "none", borderBottom: `1px solid rgba(139,92,246,0.12)`, cursor: "pointer" }}>
+          <button
+            onClick={() => setActiveTab("profile")}
+            style={{ display: "flex", alignItems: "center", gap: 12, width: "100%", padding: "12px 24px", background: "rgba(139,92,246,0.05)", border: "none", borderBottom: `1px solid rgba(139,92,246,0.12)`, cursor: "pointer" }}
+          >
             <div style={{ width: 36, height: 36, borderRadius: 10, background: "rgba(139,92,246,0.1)", display: "flex", alignItems: "center", justifyContent: "center" }}>
               <UserPlus size={15} color={C.accent} />
             </div>
@@ -1238,7 +1379,14 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
           {friends.length === 0
             ? <div style={{ padding: 48, textAlign: "center", color: C.textDim, fontSize: "0.86rem", fontFamily: FONT_BODY }}>No conversations yet. Discover and add friends!</div>
             : friends.map((f) => (
-                <ChatItem key={f.id} friend={f} active={selectedFriend?.id === f.id} unread={unreadCounts[f.id] ?? 0} lastMsg={lastMessages[f.id]} onClick={openChatCallbacks[f.id] ?? (() => openChat(f))} />
+                <ChatItem
+                  key={f.id} friend={f}
+                  active={selectedFriend?.id === f.id}
+                  unread={unreadCounts[f.id] ?? 0}
+                  lastMsg={lastMessages[f.id]}
+                  onClick={openChatCallbacks[f.id] ?? (() => openChat(f))}
+                  presence={presenceMap[f.id]}
+                />
               ))
           }
         </div>
@@ -1254,6 +1402,16 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
       </div>
     );
 
+    // ── FIX #10: Derive real status from presenceMap ───────────────────────
+    const friendPresence = presenceMap[selectedFriend.id];
+    const friendOnline = friendPresence?.online ?? false;
+    const friendStatusText = friendOnline
+      ? "Online"
+      : friendPresence?.lastSeen
+        ? fmtLastSeen(friendPresence.lastSeen)
+        : "Offline";
+    const friendStatusColor = friendOnline ? C.accentGreen : C.textDim;
+
     if (activeCall && zegoConfig) {
       return (
         <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
@@ -1264,7 +1422,11 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
             </button>
           </div>
           <div style={{ flex: 1, background: "#000", position: "relative", minHeight: 0 }}>
-            <VideoRoom appId={zegoConfig.appId} serverSecret={zegoConfig.serverSecret} roomId={activeCall.roomId} userId={user.id} userName={user.fullName} isAudioOnly={!activeCall.isVideo} onJoined={() => {}} />
+            <VideoRoom
+              appId={zegoConfig.appId} serverSecret={zegoConfig.serverSecret}
+              roomId={activeCall.roomId} userId={user.id} userName={user.fullName}
+              isAudioOnly={!activeCall.isVideo} onJoined={() => {}}
+            />
           </div>
         </div>
       );
@@ -1272,25 +1434,44 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
 
     return (
       <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
-        {/* Header */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 20px", height: 62, flexShrink: 0, background: C.bg, borderBottom: `1px solid ${C.border}` }}>
+        {/* Chat header */}
+        <div style={{
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          padding: "0 20px", height: 62, flexShrink: 0,
+          background: C.bg, borderBottom: `1px solid ${C.border}`,
+        }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             {!isDesktop && (
-              <button onClick={goBack} style={{ width: 32, height: 32, borderRadius: 8, background: C.surfaceAlt, border: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "center", color: C.textMuted, cursor: "pointer" }}>
+              <button
+                onClick={goBack}
+                style={{ width: 32, height: 32, borderRadius: 8, background: C.surfaceAlt, border: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "center", color: C.textMuted, cursor: "pointer" }}
+              >
                 <ArrowLeft size={15} />
               </button>
             )}
-            <Avatar name={selectedFriend.fullName} size={36} color="cyan" online />
+            {/* FIX #10: Avatar online dot reflects real presence */}
+            <Avatar name={selectedFriend.fullName} size={36} color="cyan" online={friendOnline} />
             <div>
-              <div style={{ fontFamily: FONT_DISPLAY, fontSize: "0.95rem", fontWeight: 700, color: C.text, letterSpacing: "-0.01em" }}>{selectedFriend.fullName}</div>
-              <div style={{ fontSize: "0.7rem", color: C.accentGreen, fontWeight: 600, fontFamily: FONT_BODY }}>Online</div>
+              <div style={{ fontFamily: FONT_DISPLAY, fontSize: "0.95rem", fontWeight: 700, color: C.text, letterSpacing: "-0.01em" }}>
+                {selectedFriend.fullName}
+              </div>
+              {/* FIX #10: "Online" or "Last seen X mins ago" */}
+              <div style={{ fontSize: "0.7rem", color: friendStatusColor, fontWeight: 600, fontFamily: FONT_BODY }}>
+                {friendStatusText}
+              </div>
             </div>
           </div>
           <div style={{ display: "flex", gap: 8 }}>
-            <button style={{ width: 36, height: 36, borderRadius: 9, background: C.surfaceAlt, border: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "center", color: C.textMuted, cursor: "pointer" }} onClick={() => startCall(false)}>
+            <button
+              style={{ width: 36, height: 36, borderRadius: 9, background: C.surfaceAlt, border: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "center", color: C.textMuted, cursor: "pointer" }}
+              onClick={() => startCall(false)}
+            >
               <Phone size={15} />
             </button>
-            <button style={{ width: 36, height: 36, borderRadius: 9, background: "linear-gradient(135deg, #6d28d9, #8b5cf6)", border: "none", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", cursor: "pointer" }} onClick={() => startCall(true)}>
+            <button
+              style={{ width: 36, height: 36, borderRadius: 9, background: "linear-gradient(135deg, #6d28d9, #8b5cf6)", border: "none", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", cursor: "pointer" }}
+              onClick={() => startCall(true)}
+            >
               <Camera size={15} />
             </button>
           </div>
@@ -1337,7 +1518,10 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
               autoComplete="off" autoCorrect="off" spellCheck={false}
             />
             {nameFilter && (
-              <button onClick={() => setNameFilter("")} style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", background: "rgba(255,255,255,0.08)", border: "none", borderRadius: "50%", width: 20, height: 20, cursor: "pointer", color: C.textMuted, display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}>
+              <button
+                onClick={() => setNameFilter("")}
+                style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", background: "rgba(255,255,255,0.08)", border: "none", borderRadius: "50%", width: 20, height: 20, cursor: "pointer", color: C.textMuted, display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}
+              >
                 <X size={11} />
               </button>
             )}
@@ -1381,9 +1565,9 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
               )}
             </div>
             <div style={{ display: "flex", width: "100%", background: "rgba(255,255,255,0.03)", borderRadius: 14, border: `1px solid ${C.border}` }}>
-              {[["Friends", friends.length], ["Requests", requests.length], ["Discover", discoverUsers.length]].map(([label, val], i, arr) => (
-                <div key={label as string} style={{ flex: 1, borderRight: i < arr.length - 1 ? `1px solid ${C.border}` : "none" }}>
-                  <StatPill value={val as number} label={label as string} />
+              {([["Friends", friends.length], ["Requests", requests.length], ["Discover", discoverUsers.length]] as const).map(([label, val], i, arr) => (
+                <div key={label} style={{ flex: 1, borderRight: i < arr.length - 1 ? `1px solid ${C.border}` : "none" }}>
+                  <StatPill value={val} label={label} />
                 </div>
               ))}
             </div>
@@ -1405,7 +1589,9 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
                   <Avatar name={req.sender.fullName} size={40} color="cyan" />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: "0.88rem", fontWeight: 700, color: C.text, fontFamily: FONT_DISPLAY }}>{req.sender.fullName}</div>
-                    <div style={{ fontSize: "0.73rem", color: C.textDim, fontFamily: FONT_BODY }}>{(req.sender as any).course ? `${(req.sender as any).course} · ${(req.sender as any).year} Year` : "Campus student"}</div>
+                    <div style={{ fontSize: "0.73rem", color: C.textDim, fontFamily: FONT_BODY }}>
+                      {(req.sender as any).course ? `${(req.sender as any).course} · ${(req.sender as any).year} Year` : "Campus student"}
+                    </div>
                   </div>
                   <button onClick={() => void acceptRequest(req.id)} style={{ background: "linear-gradient(135deg, #047857, #10b981)", border: "none", borderRadius: 9, padding: "8px 16px", fontSize: "0.77rem", fontWeight: 700, color: "#fff", cursor: "pointer", fontFamily: FONT_DISPLAY }}>Accept</button>
                 </div>
@@ -1424,7 +1610,9 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
                     {n.type === "friend_accept" ? "✓" : n.type === "friend_request" ? "+" : "i"}
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: "0.84rem", fontWeight: 600, color: C.text, fontFamily: FONT_DISPLAY }}>{n.type === "friend_accept" ? "Request accepted" : n.type === "friend_request" ? "New request" : "Update"}</div>
+                    <div style={{ fontSize: "0.84rem", fontWeight: 600, color: C.text, fontFamily: FONT_DISPLAY }}>
+                      {n.type === "friend_accept" ? "Request accepted" : n.type === "friend_request" ? "New request" : "Update"}
+                    </div>
                     <div style={{ fontSize: "0.72rem", color: C.textDim, fontFamily: FONT_BODY }}>{n.message}</div>
                   </div>
                 </div>
@@ -1465,7 +1653,7 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
     );
   }
 
-  // ─── Mobile nav ───────────────────────────────────────────────────────────
+  // ─── Mobile nav tabs ──────────────────────────────────────────────────────
   const mobileTabs: { id: AppTab; label: string; icon: React.ReactNode; badge?: number }[] = [
     { id: "home",     label: "Club",    icon: <Home size={20} /> },
     { id: "discover", label: "Explore", icon: <Grid3x3 size={20} /> },
@@ -1475,16 +1663,11 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
   const navActive = (id: AppTab) =>
     id === "messages" ? (activeTab === "messages" || activeTab === "chat") : activeTab === id;
 
-  // ─── Toast open handler ──────────────────────────────────────────────────
-  const handleOpenToast = useCallback((senderId: string) => {
-    const friend = friendsRef.current.find(f => f.id === senderId);
-    if (friend) openChat(friend);
-  }, [openChat]);
-
-  // ─── Call overlays ────────────────────────────────────────────────────────
+  // ─── Overlays (toasts + calls) ────────────────────────────────────────────
   const callOverlays = (
     <>
       <UnreadToast toasts={msgToasts} onOpen={handleOpenToast} onDismiss={dismissToast} />
+
       {outgoingCall && !activeCall && (
         <div style={{ position: "fixed", inset: 0, zIndex: 99999, background: "rgba(6,9,16,0.97)", backdropFilter: "blur(20px)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", animation: "fade-in 0.3s ease" }}>
           <div style={{ width: 100, height: 100, borderRadius: "50%", background: "linear-gradient(135deg, #6d28d9, #8b5cf6)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "2rem", fontWeight: 800, color: "#fff", fontFamily: FONT_DISPLAY, marginBottom: 24, animation: "pulse-ring 1.5s infinite" }}>
@@ -1497,13 +1680,16 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
           </button>
         </div>
       )}
+
       {incomingCall && !activeCall && (
         <div style={{ position: "fixed", inset: 0, zIndex: 99999, background: "rgba(6,9,16,0.97)", backdropFilter: "blur(20px)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", animation: "fade-in 0.3s ease" }}>
           <div style={{ width: 100, height: 100, borderRadius: "50%", background: "linear-gradient(135deg, #047857, #10b981)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "2rem", fontWeight: 800, color: "#fff", fontFamily: FONT_DISPLAY, marginBottom: 24 }}>
             {initials(incomingCall.callerName)}
           </div>
           <h3 style={{ color: C.text, fontSize: "1.5rem", fontFamily: FONT_DISPLAY, fontWeight: 900, letterSpacing: "-0.02em" }}>{incomingCall.callerName}</h3>
-          <p style={{ color: C.textMuted, marginTop: 8, fontSize: "0.87rem", fontFamily: FONT_BODY }}>Incoming {incomingCall.isVideo ? "Video" : "Audio"} Call</p>
+          <p style={{ color: C.textMuted, marginTop: 8, fontSize: "0.87rem", fontFamily: FONT_BODY }}>
+            Incoming {incomingCall.isVideo ? "Video" : "Audio"} Call
+          </p>
           <div style={{ display: "flex", gap: 24, marginTop: 40 }}>
             <button onClick={declineCall} style={{ background: "#ef4444", borderRadius: "50%", border: "none", color: "#fff", cursor: "pointer", width: 64, height: 64, display: "flex", alignItems: "center", justifyContent: "center" }}>
               <Phone size={22} style={{ transform: "rotate(135deg)" }} />
@@ -1523,12 +1709,15 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
       <>
         <style>{GLOBAL_CSS}</style>
         <div style={{ position: "fixed", inset: 0, display: "flex", background: C.bg, color: C.text, fontFamily: FONT_BODY, overflow: "hidden" }}>
+          {/* Sidebar */}
           <aside style={{ width: 240, flexShrink: 0, display: "flex", flexDirection: "column", background: C.surface, borderRight: `1px solid ${C.border}`, overflow: "hidden" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "18px 18px 14px", borderBottom: `1px solid ${C.border}` }}>
               <div style={{ width: 32, height: 32, borderRadius: 9, background: "linear-gradient(135deg, #6d28d9, #06b6d4)", display: "flex", alignItems: "center", justifyContent: "center" }}>
                 <Radio size={15} color="#fff" />
               </div>
-              <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 900, fontSize: "1.1rem", color: C.text, letterSpacing: "-0.02em" }}>CAMPUS<span style={{ color: C.accent }}>·</span></span>
+              <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 900, fontSize: "1.1rem", color: C.text, letterSpacing: "-0.02em" }}>
+                CAMPUS<span style={{ color: C.accent }}>·</span>
+              </span>
             </div>
             <div style={{ padding: "14px 16px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", gap: 10 }}>
               <Avatar name={user.fullName} size={36} color="pink" online />
@@ -1539,31 +1728,53 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
               {notifications.length > 0 && <div style={{ width: 8, height: 8, borderRadius: "50%", background: C.accentPink }} />}
             </div>
             <nav style={{ padding: "12px 10px", display: "flex", flexDirection: "column", gap: 2 }}>
-              {renderSidebarItem({ id: "home", label: "Club Home", icon: <Home size={17} /> })}
-              {renderSidebarItem({ id: "discover", label: "Explore", icon: <Grid3x3 size={17} /> })}
-              {renderSidebarItem({ id: "messages", label: "Inbox", icon: <MessageCircle size={17} />, badge: usersWithUnread })}
-              {renderSidebarItem({ id: "profile", label: "Profile", icon: <UserCircle2 size={17} /> })}
+              {renderSidebarItem({ id: "home",     label: "Club Home", icon: <Home size={17} /> })}
+              {renderSidebarItem({ id: "discover", label: "Explore",   icon: <Grid3x3 size={17} /> })}
+              {renderSidebarItem({ id: "messages", label: "Inbox",     icon: <MessageCircle size={17} />, badge: usersWithUnread })}
+              {renderSidebarItem({ id: "profile",  label: "Profile",   icon: <UserCircle2 size={17} /> })}
             </nav>
+
             {friends.length > 0 && (
               <>
                 <div style={{ padding: "10px 18px 8px", fontSize: "0.65rem", fontWeight: 700, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.12em", fontFamily: FONT_DISPLAY, borderTop: `1px solid ${C.border}`, marginTop: 8 }}>
                   Direct Messages
                 </div>
                 <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
-                  {friends.map(f => (
-                    <button key={f.id} className="sidebar-btn" onClick={openChatCallbacks[f.id] ?? (() => openChat(f))} style={{ display: "flex", alignItems: "center", gap: 9, padding: "8px 14px", width: "100%", background: selectedFriend?.id === f.id ? "rgba(139,92,246,0.08)" : "transparent", border: "none", borderLeft: selectedFriend?.id === f.id ? `2px solid ${C.accent}` : "2px solid transparent", cursor: "pointer", transition: "all 0.15s" }}>
-                      <Avatar name={f.fullName} size={28} color="cyan" online={!!(unreadCounts[f.id])} />
-                      <span style={{ fontSize: "0.82rem", fontWeight: unreadCounts[f.id] ? 700 : 400, color: unreadCounts[f.id] ? C.text : C.textMuted, fontFamily: FONT_BODY, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{f.fullName}</span>
-                      {unreadCounts[f.id] > 0 && (
-                        <span style={{ background: C.accentPink, color: "#fff", fontSize: "0.55rem", padding: "1px 5px", borderRadius: 100, fontWeight: 800, fontFamily: FONT_DISPLAY, minWidth: 16, textAlign: "center" }}>{unreadCounts[f.id]}</span>
-                      )}
-                    </button>
-                  ))}
+                  {friends.map(f => {
+                    const fp = presenceMap[f.id];
+                    return (
+                      <button
+                        key={f.id}
+                        className="sidebar-btn"
+                        onClick={openChatCallbacks[f.id] ?? (() => openChat(f))}
+                        style={{
+                          display: "flex", alignItems: "center", gap: 9,
+                          padding: "8px 14px", width: "100%",
+                          background: selectedFriend?.id === f.id ? "rgba(139,92,246,0.08)" : "transparent",
+                          border: "none",
+                          borderLeft: selectedFriend?.id === f.id ? `2px solid ${C.accent}` : "2px solid transparent",
+                          cursor: "pointer", transition: "all 0.15s",
+                        }}
+                      >
+                        {/* FIX #10: real online dot in sidebar */}
+                        <Avatar name={f.fullName} size={28} color="cyan" online={fp?.online ?? false} />
+                        <span style={{ fontSize: "0.82rem", fontWeight: unreadCounts[f.id] ? 700 : 400, color: unreadCounts[f.id] ? C.text : C.textMuted, fontFamily: FONT_BODY, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>
+                          {f.fullName}
+                        </span>
+                        {unreadCounts[f.id] > 0 && (
+                          <span style={{ background: C.accentPink, color: "#fff", fontSize: "0.55rem", padding: "1px 5px", borderRadius: 100, fontWeight: 800, fontFamily: FONT_DISPLAY, minWidth: 16, textAlign: "center" }}>
+                            {unreadCounts[f.id]}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
                 </div>
               </>
             )}
           </aside>
 
+          {/* Main */}
           <main style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
             <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 28px", height: 60, flexShrink: 0, background: C.bg, borderBottom: `1px solid ${C.border}` }}>
               <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: "1rem", color: C.text, letterSpacing: "-0.01em" }}>
@@ -1592,7 +1803,7 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
                 </div>
               )}
               <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column", minWidth: 0 }}>
-                {activeTab === "home" && renderHomeContent()}
+                {activeTab === "home"    && renderHomeContent()}
                 {activeTab === "discover" && renderDiscoverContent()}
                 {(activeTab === "messages" || activeTab === "chat") && renderChatContent()}
                 {activeTab === "profile" && renderProfileContent()}
@@ -1610,13 +1821,16 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
     <>
       <style>{GLOBAL_CSS}</style>
       <div style={{ position: "fixed", inset: 0, display: "flex", flexDirection: "column", background: C.bg, color: C.text, fontFamily: FONT_BODY, overflow: "hidden" }}>
+        {/* Mobile top bar — hidden during chat */}
         {activeTab !== "chat" && activeTab !== "messages" && (
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 16px", height: 56, flexShrink: 0, borderBottom: `1px solid ${C.border}`, background: C.bg }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <div style={{ width: 28, height: 28, borderRadius: 8, background: "linear-gradient(135deg, #6d28d9, #06b6d4)", display: "flex", alignItems: "center", justifyContent: "center" }}>
                 <Radio size={13} color="#fff" />
               </div>
-              <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 900, fontSize: "1.05rem", color: C.text }}>CAMPUS<span style={{ color: C.accent }}>·</span></span>
+              <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 900, fontSize: "1.05rem", color: C.text }}>
+                CAMPUS<span style={{ color: C.accent }}>·</span>
+              </span>
             </div>
             <div style={{ display: "flex", gap: 8 }}>
               <button style={{ width: 32, height: 32, borderRadius: 8, background: C.surfaceAlt, border: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "center", color: C.textMuted, cursor: "pointer", position: "relative" }}>
@@ -1630,6 +1844,7 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
           </div>
         )}
 
+        {/* Page content */}
         <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column", minHeight: 0 }}>
           {activeTab === "home" && (
             <div style={{ flex: 1, overflowY: "auto", padding: "16px 16px", minHeight: 0 }}>
@@ -1644,9 +1859,18 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
                 {renderSectionTitle({ title: "Active Dialogue", action: "See all", onAction: () => setActiveTab("messages") })}
                 <div style={{ background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 14, overflow: "hidden" }}>
                   {friends.slice(0, 4).map(f => (
-                    <ChatItem key={f.id} friend={f} unread={unreadCounts[f.id] ?? 0} lastMsg={lastMessages[f.id]} onClick={openChatCallbacks[f.id] ?? (() => openChat(f))} compact />
+                    <ChatItem
+                      key={f.id} friend={f}
+                      unread={unreadCounts[f.id] ?? 0}
+                      lastMsg={lastMessages[f.id]}
+                      onClick={openChatCallbacks[f.id] ?? (() => openChat(f))}
+                      compact
+                      presence={presenceMap[f.id]}
+                    />
                   ))}
-                  {friends.length === 0 && <div style={{ padding: 20, textAlign: "center", color: C.textDim, fontSize: "0.82rem", fontFamily: FONT_BODY }}>Add friends to chat</div>}
+                  {friends.length === 0 && (
+                    <div style={{ padding: 20, textAlign: "center", color: C.textDim, fontSize: "0.82rem", fontFamily: FONT_BODY }}>Add friends to chat</div>
+                  )}
                 </div>
               </div>
               <div style={{ height: 24 }} />
@@ -1654,21 +1878,50 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
           )}
           {activeTab === "discover" && renderDiscoverContent()}
           {activeTab === "messages" && renderMessagesContent()}
-          {activeTab === "chat" && renderChatContent()}
-          {activeTab === "profile" && renderProfileContent()}
+          {activeTab === "chat"     && renderChatContent()}
+          {activeTab === "profile"  && renderProfileContent()}
         </div>
 
+        {/* Bottom nav — hidden during chat */}
         {activeTab !== "chat" && (
-          <nav style={{ display: "flex", height: "calc(60px + env(safe-area-inset-bottom, 0px))", paddingBottom: "env(safe-area-inset-bottom, 0px)", background: "rgba(6,9,16,0.98)", borderTop: `1px solid ${C.border}`, flexShrink: 0, backdropFilter: "blur(20px)" }}>
+          <nav style={{
+            display: "flex",
+            height: "calc(60px + env(safe-area-inset-bottom, 0px))",
+            paddingBottom: "env(safe-area-inset-bottom, 0px)",
+            background: "rgba(6,9,16,0.98)", borderTop: `1px solid ${C.border}`,
+            flexShrink: 0, backdropFilter: "blur(20px)",
+          }}>
             {mobileTabs.map((tab) => {
               const active = navActive(tab.id);
               return (
-                <button key={tab.id} className="nav-item" onClick={() => { if (tab.id === "messages") setSelectedFriend(null); setActiveTab(tab.id); }} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4, background: "none", border: "none", cursor: "pointer", color: active ? C.accentBright : C.textDim, fontSize: "0.58rem", fontWeight: 700, position: "relative", padding: "8px 0", fontFamily: FONT_DISPLAY, letterSpacing: "0.08em", transition: "color 0.15s" }}>
-                  {active && <span style={{ position: "absolute", top: 0, left: "50%", transform: "translateX(-50%)", width: 20, height: 2, borderRadius: 1, background: C.accent }} />}
+                <button
+                  key={tab.id}
+                  className="nav-item"
+                  onClick={() => { if (tab.id === "messages") setSelectedFriend(null); setActiveTab(tab.id); }}
+                  style={{
+                    flex: 1, display: "flex", flexDirection: "column", alignItems: "center",
+                    justifyContent: "center", gap: 4, background: "none", border: "none",
+                    cursor: "pointer", color: active ? C.accentBright : C.textDim,
+                    fontSize: "0.58rem", fontWeight: 700, position: "relative",
+                    padding: "8px 0", fontFamily: FONT_DISPLAY, letterSpacing: "0.08em",
+                    transition: "color 0.15s",
+                  }}
+                >
+                  {active && (
+                    <span style={{ position: "absolute", top: 0, left: "50%", transform: "translateX(-50%)", width: 20, height: 2, borderRadius: 1, background: C.accent }} />
+                  )}
                   <span style={{ opacity: active ? 1 : 0.55 }}>{tab.icon}</span>
                   <span style={{ textTransform: "uppercase" }}>{tab.label}</span>
                   {tab.badge && tab.badge > 0 ? (
-                    <span style={{ position: "absolute", top: 7, right: "calc(50% - 16px)", background: C.accentPink, color: "#fff", fontSize: "0.52rem", fontWeight: 800, padding: "1px 4px", borderRadius: 100, minWidth: 15, textAlign: "center", border: `2px solid ${C.bg}`, fontFamily: FONT_DISPLAY }}>{tab.badge > 99 ? "99+" : tab.badge}</span>
+                    <span style={{
+                      position: "absolute", top: 7, right: "calc(50% - 16px)",
+                      background: C.accentPink, color: "#fff", fontSize: "0.52rem",
+                      fontWeight: 800, padding: "1px 4px", borderRadius: 100,
+                      minWidth: 15, textAlign: "center",
+                      border: `2px solid ${C.bg}`, fontFamily: FONT_DISPLAY,
+                    }}>
+                      {tab.badge > 99 ? "99+" : tab.badge}
+                    </span>
                   ) : null}
                 </button>
               );
