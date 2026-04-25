@@ -5,11 +5,12 @@ import { prisma } from "./prisma.js";
 import { getConversationRoom } from "./utils.js";
 
 // ─── state ────────────────────────────────────────────────────────────────────
-const onlineUsers   = new Map<string, Set<string>>(); // userId → Set<socketId>
-const waitingQueue  = new Set<string>();              // userId
-const activeMatches = new Map<string, string>();      // userId → partnerId
+const onlineUsers     = new Map<string, Set<string>>(); // userId → Set<socketId>
+const waitingQueue    = new Set<string>();               // userId
+const activeMatches   = new Map<string, string>();       // userId → partnerId
+const recentlySkipped = new Map<string, Set<string>>();  // FIX: userId → Set<skippedUserId>
 let   queueProcessing = false;
-let   pendingQueueRun = false; // FIX: re-run after busy pass finishes
+let   pendingQueueRun = false;
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -21,7 +22,6 @@ function isOnline(userId: string): boolean {
 function getSocketId(userId: string): string | undefined {
   const sockets = onlineUsers.get(userId);
   if (!sockets || sockets.size === 0) return undefined;
-  // Return the first (most stable) socket
   return sockets.values().next().value as string | undefined;
 }
 
@@ -41,17 +41,26 @@ function unregisterSocket(userId: string, socketId: string): boolean {
   return false;
 }
 
-async function isBlockedBetween(userAId: string, userBId: string): Promise<boolean> {
-  const block = await prisma.userBlock.findFirst({
-    where: {
-      OR: [
-        { blockerId: userAId, blockedId: userBId },
-        { blockerId: userBId, blockedId: userAId },
-      ],
-    },
-    select: { id: true },
-  });
-  return Boolean(block);
+// FIX: record a mutual skip between two users, auto-expiring after `ttlMs`
+function recordSkip(userAId: string, userBId: string, ttlMs = 60_000): void {
+  for (const [self, other] of [
+    [userAId, userBId],
+    [userBId, userAId],
+  ] as const) {
+    if (!recentlySkipped.has(self)) recentlySkipped.set(self, new Set());
+    recentlySkipped.get(self)!.add(other);
+    setTimeout(() => {
+      recentlySkipped.get(self)?.delete(other);
+    }, ttlMs);
+  }
+}
+
+// FIX: check if either user has recently skipped the other
+function wereRecentlySkipped(userAId: string, userBId: string): boolean {
+  return (
+    recentlySkipped.get(userAId)?.has(userBId) === true ||
+    recentlySkipped.get(userBId)?.has(userAId) === true
+  );
 }
 
 function getPublicUserPayload(user: Awaited<ReturnType<typeof prisma.user.findUnique>>) {
@@ -87,12 +96,13 @@ export function endActiveMatch(userId: string): string | null {
 //
 // FIX 1: pendingQueueRun — don't drop queue calls that arrive while busy.
 // FIX 2: Pair ALL eligible users per sweep instead of break+restart each time.
-// FIX 3: Single batched DB query instead of 2 individual queries per pair.
-// FIX 4: 3-second health-check ticker catches any stragglers.
+// FIX 3: Single batched block query for the whole eligible set (O(1) lookups).
+// FIX 4: Skip recently-skipped pairs to prevent immediate re-match after skip.
+// FIX 5: 3-second health-check ticker catches any stragglers.
 //
 async function processWaitingQueue(io: Server): Promise<void> {
   if (queueProcessing) {
-    pendingQueueRun = true; // FIX 1: remember to run again
+    pendingQueueRun = true;
     return;
   }
 
@@ -111,15 +121,33 @@ async function processWaitingQueue(io: Server): Promise<void> {
 
       if (eligible.length < 2) break;
 
-      // FIX 3: Batch-fetch all eligible user records in one query
+      // Batch-fetch all user records in one query
       const userRecords = await prisma.user.findMany({
         where: { id: { in: eligible } },
       });
       const userMap = new Map(userRecords.map((u) => [u.id, u]));
 
+      // FIX 3: Batch-fetch ALL block relationships for the eligible set in one query
+      const blocks = await prisma.userBlock.findMany({
+        where: {
+          OR: [
+            { blockerId: { in: eligible } },
+            { blockedId: { in: eligible } },
+          ],
+        },
+        select: { blockerId: true, blockedId: true },
+      });
+
+      // Build an O(1) blocked-pair lookup set
+      const blockedSet = new Set(
+        blocks.map((b) => `${b.blockerId}:${b.blockedId}`)
+      );
+      const isBlocked = (a: string, b: string): boolean =>
+        blockedSet.has(`${a}:${b}`) || blockedSet.has(`${b}:${a}`);
+
       const pairedThisSweep = new Set<string>();
 
-      // FIX 2: pair as many users as possible without restarting the loop
+      // FIX 2: pair as many users as possible in a single sweep
       for (let i = 0; i < eligible.length; i++) {
         const currentUserId = eligible[i];
 
@@ -141,7 +169,11 @@ async function processWaitingQueue(io: Server): Promise<void> {
             candidateId === currentUserId
           ) continue;
 
-          if (await isBlockedBetween(currentUserId, candidateId)) continue;
+          // FIX 4: skip pairs that recently skipped each other
+          if (wereRecentlySkipped(currentUserId, candidateId)) continue;
+
+          // FIX 3: use in-memory set instead of a DB round-trip per pair
+          if (isBlocked(currentUserId, candidateId)) continue;
 
           const currentUser = userMap.get(currentUserId);
           const partner     = userMap.get(candidateId);
@@ -183,7 +215,6 @@ async function processWaitingQueue(io: Server): Promise<void> {
   } finally {
     queueProcessing = false;
 
-    // FIX 1: a call arrived while we were busy — run it now
     if (pendingQueueRun) {
       pendingQueueRun = false;
       void processWaitingQueue(io);
@@ -191,7 +222,7 @@ async function processWaitingQueue(io: Server): Promise<void> {
   }
 }
 
-// FIX 4: periodic health-check — re-triggers queue every 3 s if users are waiting
+// FIX 5: periodic health-check — re-triggers queue every 3 s if users are waiting
 function startQueueHealthCheck(io: Server): void {
   setInterval(() => {
     if (waitingQueue.size >= 2 && !queueProcessing) {
@@ -234,19 +265,30 @@ export function attachSocketHandlers(io: Server): void {
         const text = content?.trim();
         if (!text && !imageUrl) return;
 
-        if (await isBlockedBetween(currentUser.id, receiverId)) {
+        const [blocked, friendship] = await Promise.all([
+          prisma.userBlock.findFirst({
+            where: {
+              OR: [
+                { blockerId: currentUser.id, blockedId: receiverId },
+                { blockerId: receiverId, blockedId: currentUser.id },
+              ],
+            },
+            select: { id: true },
+          }),
+          prisma.friendship.findFirst({
+            where: {
+              OR: [
+                { userAId: currentUser.id, userBId: receiverId },
+                { userAId: receiverId,     userBId: currentUser.id },
+              ],
+            },
+          }),
+        ]);
+
+        if (blocked) {
           socket.emit("message:error", { message: "You cannot message this user." });
           return;
         }
-
-        const friendship = await prisma.friendship.findFirst({
-          where: {
-            OR: [
-              { userAId: currentUser.id, userBId: receiverId },
-              { userAId: receiverId,     userBId: currentUser.id },
-            ],
-          },
-        });
 
         if (!friendship) {
           socket.emit("message:error", { message: "You can only message accepted friends." });
@@ -355,6 +397,11 @@ export function attachSocketHandlers(io: Server): void {
     socket.on("match:leave-room", () => {
       const partnerId = endActiveMatch(currentUser.id);
       if (!partnerId) return;
+
+      // FIX 4: record the mutual skip BEFORE notifying the partner
+      // so that when partner auto-rejoins the queue they won't be
+      // immediately re-matched with the user who just skipped them.
+      recordSkip(currentUser.id, partnerId);
 
       const partnerSocketId = getSocketId(partnerId);
       if (partnerSocketId) {
