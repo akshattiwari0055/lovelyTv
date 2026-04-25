@@ -160,6 +160,7 @@ export function LandingPage({ isLoggedIn, onLogout }: LandingPageProps) {
           --header-h: 64px;
         }
 
+        html, body { margin: 0; padding: 0; background: #080b12; }
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
         .lp-shell {
@@ -167,10 +168,8 @@ export function LandingPage({ isLoggedIn, onLogout }: LandingPageProps) {
           color: var(--text);
           font-family: var(--font-body);
           overflow-x: hidden;
-          min-height: 100dvh;
           -webkit-font-smoothing: antialiased;
           font-size: 16px;
-          padding-top: var(--header-h);
         }
 
         /* ── GRAIN ─────────────────────────────────── */
@@ -186,7 +185,7 @@ export function LandingPage({ isLoggedIn, onLogout }: LandingPageProps) {
           min-height: calc(100dvh - var(--header-h));
           display: flex; flex-direction: column;
           align-items: center; justify-content: center;
-          padding: 32px 16px 48px;
+          padding: 28px 16px 40px;
           text-align: center;
           position: relative; overflow: hidden;
         }
@@ -528,15 +527,23 @@ export function LandingPage({ isLoggedIn, onLogout }: LandingPageProps) {
 
         /* ── RESPONSIVE ────────────────────────────── */
         @media (max-width: 640px) {
-          .lp-hero { padding: 20px 12px 36px; min-height: calc(100dvh - var(--header-h)); }
+          :root { --header-h: 56px; }
+          .lp-hero {
+            min-height: calc(100dvh - var(--header-h));
+            padding: 16px 12px 32px;
+            justify-content: center;
+          }
           .lp-h1 { font-size: clamp(72px, 22vw, 120px); }
-          .lp-h1-line2 { font-size: clamp(68px, 21vw, 114px); margin-bottom: 20px; }
-          .lp-btn-primary, .lp-btn-secondary { padding: 13px 20px; font-size: 14px; }
-          .lp-stat-cell { padding: 14px 8px; }
-          .lp-live-pill { margin-bottom: 14px; }
+          .lp-h1-line2 { font-size: clamp(68px, 21vw, 114px); margin-bottom: 16px; }
+          .lp-hero-subtitle { margin-bottom: 16px; font-size: 13px; }
+          .lp-trust-row { margin-bottom: 16px; }
+          .lp-hero-btns { margin-bottom: 24px; gap: 10px; }
+          .lp-btn-primary, .lp-btn-secondary { padding: 12px 18px; font-size: 14px; }
+          .lp-stat-cell { padding: 12px 8px; }
+          .lp-live-pill { margin-bottom: 12px; font-size: 10px; padding: 5px 12px 5px 10px; }
         }
         @media (min-width: 641px) and (max-width: 1024px) {
-          .lp-hero { padding: 28px 20px 48px; }
+          .lp-hero { padding: 24px 20px 40px; }
         }
       `}</style>
 
