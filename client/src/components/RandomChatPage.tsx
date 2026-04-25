@@ -12,6 +12,7 @@ import {
   UserPlus,
   X,
   ChevronDown,
+  FlipHorizontal2,
 } from "lucide-react";
 import { api } from "../lib/api";
 import { connectSocket, disconnectSocket, getSocket } from "../lib/socket";
@@ -53,6 +54,10 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [connectionIssue, setConnectionIssue] = useState("");
   const [showReactionTray, setShowReactionTray] = useState(false);
+  // Camera flip state
+  const [facingMode, setFacingMode] = useState<"user" | "environment">("user");
+  const [isFlipping, setIsFlipping] = useState(false);
+
   const swipeStartX = useRef<number | null>(null);
   const swipeStartY = useRef<number | null>(null);
   const [swipeDelta, setSwipeDelta] = useState(0);
@@ -66,6 +71,7 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
   const liveChatBodyRef = useRef<HTMLDivElement | null>(null);
   const drawerBodyRef = useRef<HTMLDivElement | null>(null);
   const vcolRef = useRef<HTMLDivElement>(null);
+  const previewStreamRef = useRef<MediaStream | null>(null);
 
   useEffect(() => { hasStartedRef.current = hasStarted; }, [hasStarted]);
   useEffect(() => { matchRef.current = match; }, [match]);
@@ -87,39 +93,56 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
     return () => window.clearInterval(id);
   }, [callStartedAt, match, zegoConnecting]);
 
-  // FIX: Scroll both sidebar and drawer to bottom on new messages
+  // Scroll both sidebar and drawer to bottom on new messages
   useEffect(() => {
     if (liveMessages.length === 0) return;
     liveChatBodyRef.current?.scrollTo({ top: liveChatBodyRef.current.scrollHeight, behavior: "smooth" });
     drawerBodyRef.current?.scrollTo({ top: drawerBodyRef.current.scrollHeight, behavior: "smooth" });
   }, [liveMessages]);
 
+  // Preview camera (idle screen) — restarts when facingMode changes
   useEffect(() => {
     if (hasStarted || zegoConnecting || zegoRenderMatch) return;
     let cancelled = false;
-    let currentStream: MediaStream | null = null;
+
+    const stopCurrent = () => {
+      if (previewStreamRef.current) {
+        previewStreamRef.current.getTracks().forEach((t) => t.stop());
+        previewStreamRef.current = null;
+      }
+      if (localVideoRef.current) localVideoRef.current.srcObject = null;
+    };
+
     const startPreview = () => {
-      navigator.mediaDevices.getUserMedia({ video: true, audio: false })
+      navigator.mediaDevices
+        .getUserMedia({ video: { facingMode }, audio: false })
         .then((s) => {
           if (cancelled) { s.getTracks().forEach((t) => t.stop()); return; }
-          currentStream = s;
+          previewStreamRef.current = s;
           if (localVideoRef.current) localVideoRef.current.srcObject = s;
+          setIsFlipping(false);
         })
         .catch((error: DOMException) => {
           if (cancelled) return;
+          setIsFlipping(false);
           if (error.name === "NotReadableError") {
             previewRetryTimerRef.current = window.setTimeout(() => { if (!cancelled) startPreview(); }, 1000);
           }
         });
     };
+
+    stopCurrent();
     startPreview();
+
     return () => {
       cancelled = true;
-      if (previewRetryTimerRef.current !== null) { window.clearTimeout(previewRetryTimerRef.current); previewRetryTimerRef.current = null; }
-      currentStream?.getTracks().forEach((t) => t.stop());
-      if (localVideoRef.current) localVideoRef.current.srcObject = null;
+      if (previewRetryTimerRef.current !== null) {
+        window.clearTimeout(previewRetryTimerRef.current);
+        previewRetryTimerRef.current = null;
+      }
+      stopCurrent();
     };
-  }, [hasStarted, zegoConnecting, zegoRenderMatch]);
+  }, [hasStarted, zegoConnecting, zegoRenderMatch, facingMode]);
 
   useEffect(() => {
     if (match) { const t = setTimeout(() => setZegoRenderMatch(match), 800); return () => clearTimeout(t); }
@@ -245,22 +268,17 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
       if (window.innerWidth <= 768) {
         const zegoFill = vcol.querySelector<HTMLElement>(".rcp-zego-fill");
         if (zegoFill) {
-          // Force the fill itself to be a flex column
           zegoFill.style.setProperty("display", "flex", "important");
           zegoFill.style.setProperty("flex-direction", "column", "important");
           zegoFill.style.setProperty("width", "100%", "important");
           zegoFill.style.setProperty("height", "100%", "important");
           zegoFill.style.setProperty("overflow", "hidden", "important");
-
-          // Walk every descendant div — force flex-column + full size on all wrappers
           zegoFill.querySelectorAll<HTMLElement>("div").forEach((div) => {
             if (isOurEl(div)) return;
             div.style.setProperty("min-height", "0", "important");
             div.style.setProperty("overflow", "hidden", "important");
-
             const children = Array.from(div.children).filter(c => c.tagName === "DIV");
             if (children.length >= 2) {
-              // This is the grid row — stack it vertically
               div.style.setProperty("display", "flex", "important");
               div.style.setProperty("flex-direction", "column", "important");
               div.style.setProperty("width", "100%", "important");
@@ -282,8 +300,6 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
               div.style.setProperty("flex-direction", "column", "important");
             }
           });
-
-          // Force all videos to fill their container — this kills the black bars
           zegoFill.querySelectorAll<HTMLVideoElement>("video").forEach((video) => {
             video.style.setProperty("width", "100%", "important");
             video.style.setProperty("height", "100%", "important");
@@ -347,8 +363,6 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
       setFloatingReactions((c) => [...c, { id, emoji }]);
       window.setTimeout(() => setFloatingReactions((c) => c.filter((r) => r.id !== id)), 2200);
     });
-    // Server broadcasts match:chat to ALL users in the room (including sender).
-    // So both sender and receiver get this event — no need for optimistic inserts.
     socket.on("match:chat", (payload: LiveChatMessage) => {
       setLiveMessages((c) => [...c.slice(-19), payload]);
     });
@@ -379,6 +393,12 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
     }
     setSwipeDelta(0); setSwipeDir(null);
     swipeStartX.current = null; swipeStartY.current = null;
+  }
+
+  function handleFlipCamera() {
+    if (isFlipping) return;
+    setIsFlipping(true);
+    setFacingMode((prev) => (prev === "user" ? "environment" : "user"));
   }
 
   async function handleFriendAction() {
@@ -468,6 +488,8 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
   }
 
   const isInCall = Boolean(match) && !zegoConnecting;
+  // Show flip button when: idle preview (not started, not in zego) OR in an active call
+  const showFlipButton = (!hasStarted && !zegoRenderMatch && !zegoConnecting) || isInCall;
 
   return (
     <>
@@ -681,6 +703,34 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
           border-radius: 7px; padding: 4px 9px;
           font-family: var(--font-head); font-size: 11px; font-weight: 600; color: var(--muted);
           font-variant-numeric: tabular-nums;
+        }
+
+        /* ── CAMERA FLIP BUTTON ───────────────────── */
+        .rcp-flip-btn {
+          position: absolute; top: 14px; left: 14px;
+          z-index: 6; pointer-events: auto;
+          width: 38px; height: 38px; border-radius: 12px;
+          background: rgba(8,11,18,0.55); backdrop-filter: blur(12px);
+          border: 1px solid rgba(241,245,249,0.12);
+          display: flex; align-items: center; justify-content: center;
+          color: rgba(241,245,249,0.75); cursor: pointer;
+          transition: background 0.15s, color 0.15s, transform 0.15s;
+        }
+        .rcp-flip-btn:hover { background: rgba(34,211,238,0.12); color: var(--cyan); border-color: rgba(34,211,238,0.25); }
+        .rcp-flip-btn:active { transform: scale(0.88); }
+        .rcp-flip-btn:disabled { opacity: 0.3; cursor: default; transform: none; }
+        .rcp-flip-btn .rcp-flip-icon {
+          transition: transform 0.35s cubic-bezier(0.34,1.56,0.64,1);
+        }
+        .rcp-flip-btn.flipping .rcp-flip-icon {
+          transform: rotateY(180deg);
+        }
+
+        /* When in-call, badges start after the flip button */
+        .rcp-call-badges-incall {
+          position: absolute; top: 14px; left: 62px;
+          display: flex; align-items: center; gap: 8px;
+          z-index: 5; pointer-events: none;
         }
 
         /* ── CALL ACTIONS ────────────────────────── */
@@ -909,8 +959,8 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
         .rcp-drawer-send:active { transform: scale(0.9); }
 
         /* ── NUKE ZEGO HANGUP ────────────────────── */
-        .rcp-vcol button:not(.rcp-act-btn):not(.rcp-back-btn):not(.rcp-flag-btn),
-        .rcp-vcol [role="button"]:not(.rcp-act-btn) {
+        .rcp-vcol button:not(.rcp-act-btn):not(.rcp-back-btn):not(.rcp-flag-btn):not(.rcp-flip-btn),
+        .rcp-vcol [role="button"]:not(.rcp-act-btn):not(.rcp-flip-btn) {
           display: none !important;
           visibility: hidden !important;
           pointer-events: none !important;
@@ -923,10 +973,16 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
           pointer-events: auto !important;
           width: 40px !important; height: 40px !important; opacity: 1 !important;
         }
+        /* Ensure our flip button is never nuked */
+        .rcp-flip-btn {
+          display: flex !important;
+          visibility: visible !important;
+          pointer-events: auto !important;
+          width: 38px !important; height: 38px !important; opacity: 1 !important;
+        }
 
         /* ── FORCE ZEGO VERTICAL STACK ON MOBILE ── */
         @media (max-width: 768px) {
-          /* Force every wrapper div inside zego fill to be a full-height flex column */
           .rcp-zego-fill,
           .rcp-zego-fill > div,
           .rcp-zego-fill > div > div {
@@ -937,7 +993,6 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
             min-height: 0 !important;
             overflow: hidden !important;
           }
-          /* Each tile (partner + self) gets exactly half */
           .rcp-zego-fill > div > div > div {
             display: flex !important;
             flex-direction: column !important;
@@ -947,7 +1002,6 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
             flex: 1 1 50% !important;
             overflow: hidden !important;
           }
-          /* Inner wrappers inside each tile fill their tile */
           .rcp-zego-fill > div > div > div > div,
           .rcp-zego-fill > div > div > div > div > div {
             width: 100% !important;
@@ -958,7 +1012,6 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
             flex-direction: column !important;
             overflow: hidden !important;
           }
-          /* Videos fill their container completely — no black bars */
           .rcp-zego-fill video {
             width: 100% !important;
             height: 100% !important;
@@ -1145,9 +1198,22 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
               </div>
             )}
 
-            {/* Call badges */}
+            {/* ── CAMERA FLIP BUTTON (top-left, always visible when applicable) */}
+            {showFlipButton && (
+              <button
+                className={`rcp-flip-btn${isFlipping ? " flipping" : ""}`}
+                onClick={handleFlipCamera}
+                disabled={isFlipping}
+                title={facingMode === "user" ? "Switch to back camera" : "Switch to front camera"}
+                aria-label="Flip camera"
+              >
+                <FlipHorizontal2 size={17} className="rcp-flip-icon" />
+              </button>
+            )}
+
+            {/* Call badges — offset right of flip button when in call */}
             {isInCall && (
-              <div className="rcp-call-badges">
+              <div className="rcp-call-badges-incall">
                 <div className="rcp-live-pill"><span className="rcp-live-blink" /> Live</div>
                 <div className="rcp-name-chip">{match!.partner.fullName.split(" ")[0]}</div>
                 <div className="rcp-timer-chip">{liveTimer}</div>
@@ -1273,7 +1339,6 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
             <span className="rcp-drawer-title">Live Chat</span>
             <button className="rcp-drawer-close" onClick={() => setShowLiveChat(false)}><ChevronDown size={16} /></button>
           </div>
-          {/* FIX: Added drawerBodyRef so drawer scrolls to bottom on new messages */}
           <div className="rcp-drawer-body" ref={drawerBodyRef}>
             {liveMessages.length === 0 && <p className="rcp-drawer-empty">Messages appear here during the call</p>}
             {liveMessages.map((entry) => (
@@ -1288,7 +1353,6 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
               onChange={(e) => setLiveChatInput(e.target.value)}
               placeholder={isInCall ? "Type a message…" : "Start a call to chat"}
               disabled={!isInCall} />
-            {/* FIX: disabled when no input or not in call, consistent with sidebar */}
             <button className="rcp-drawer-send" type="submit" disabled={!liveChatInput.trim() || !isInCall}>
               <Send size={15} />
             </button>
