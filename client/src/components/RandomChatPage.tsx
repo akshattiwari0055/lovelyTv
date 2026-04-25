@@ -132,6 +132,33 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
         max-width: 100% !important; max-height: 100% !important; background: #08080f !important;
       }
       .rcp-zego-fill video { width: 100% !important; height: 100% !important; object-fit: cover !important; }
+      /* Hide Zego's hangup/footer/toolbar by class name patterns */
+      .rcp-zego-fill [class*="footer"],
+      .rcp-zego-fill [class*="Footer"],
+      .rcp-zego-fill [class*="bottom"],
+      .rcp-zego-fill [class*="Bottom"],
+      .rcp-zego-fill [class*="leave"],
+      .rcp-zego-fill [class*="Leave"],
+      .rcp-zego-fill [class*="hang"],
+      .rcp-zego-fill [class*="Hang"],
+      .rcp-zego-fill [class*="toolbar"],
+      .rcp-zego-fill [class*="Toolbar"],
+      .rcp-zego-fill [class*="control"],
+      .rcp-zego-fill [class*="Control"] {
+        display: none !important; visibility: hidden !important;
+        pointer-events: none !important; height: 0 !important;
+        width: 0 !important; overflow: hidden !important; opacity: 0 !important;
+        position: absolute !important; z-index: -9999 !important;
+      }
+      /* Kill all Zego buttons inside the video fill */
+      .rcp-zego-fill button,
+      .rcp-zego-fill [role="button"] {
+        display: none !important; visibility: hidden !important;
+        pointer-events: none !important; opacity: 0 !important;
+        width: 0 !important; height: 0 !important;
+        position: absolute !important; z-index: -9999 !important;
+      }
+      /* Hide anything not our class injected as a sibling inside vcol */
       .rcp-vcol-inner > div:not(.rcp-zego-fill):not(.rcp-connecting):not(.rcp-idle):not(.rcp-call-badges):not(.rcp-call-actions):not(.rcp-floats):not(.rcp-swipe-hint) {
         display: none !important; visibility: hidden !important; pointer-events: none !important;
         height: 0 !important; overflow: hidden !important; opacity: 0 !important;
@@ -151,8 +178,30 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
           (child as HTMLElement).style.setProperty("pointer-events", "none", "important");
         }
       });
-      vcol.querySelectorAll<HTMLElement>("button, [role='button']").forEach((btn) => {
-        if (!isOurEl(btn)) { btn.style.setProperty("display", "none", "important"); btn.style.setProperty("pointer-events", "none", "important"); }
+      // Kill ALL buttons inside vcol that aren't ours — including Zego's red hangup
+      vcol.querySelectorAll<HTMLElement>("button, [role='button'], [class*='hangup'], [class*='leave'], [class*='footer'], [class*='toolbar'], [class*='bottom-bar']").forEach((btn) => {
+        if (!isOurEl(btn)) {
+          btn.style.setProperty("display", "none", "important");
+          btn.style.setProperty("pointer-events", "none", "important");
+          btn.style.setProperty("width", "0", "important");
+          btn.style.setProperty("height", "0", "important");
+          btn.style.setProperty("opacity", "0", "important");
+          btn.style.setProperty("position", "absolute", "important");
+          btn.style.setProperty("z-index", "-9999", "important");
+        }
+      });
+      // Also kill any absolutely-positioned div that sits between our zego-fill and our overlay — Zego's bottom bar
+      vcol.querySelectorAll<HTMLElement>(".rcp-zego-fill > div > div > div").forEach((el) => {
+        const bg = window.getComputedStyle(el).backgroundColor;
+        // Zego's bar is usually a darkened/solid container at the bottom
+        if (el.style.position === "absolute" || window.getComputedStyle(el).position === "absolute") {
+          const rect = el.getBoundingClientRect();
+          const vcolRect = vcol.getBoundingClientRect();
+          // If it's in the bottom 15% of the video column and not ours — kill it
+          if (rect.top > vcolRect.top + vcolRect.height * 0.75) {
+            el.style.setProperty("display", "none", "important");
+          }
+        }
       });
       document.body.querySelectorAll<HTMLElement>(":scope > div").forEach((el) => {
         const txt = el.textContent || "";
@@ -699,7 +748,10 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
         .ci-chat.on { background: rgba(167,139,250,0.1); border-color: rgba(167,139,250,0.3); color: var(--violet); }
 
         .rcp-swipe-guide { display: none; margin-left: auto; }
+        /* Chat button: hidden on desktop (sidebar handles it), visible only on mobile */
+        .rcp-ctrl-btn-chat-mobile { display: none; }
         @media (max-width: 768px) {
+          .rcp-ctrl-btn-chat-mobile { display: flex; }
           .rcp-swipe-guide {
             display: flex; flex-direction: column; gap: 3px; align-items: flex-end;
           }
@@ -711,13 +763,78 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
 
         /* ── MOBILE DRAWER ───────────────────────── */
         .rcp-drawer {
-          position: absolute; bottom: 0; left: 0; right: 0; z-index: 80;
-          background: rgba(13,16,32,0.98); backdrop-filter: blur(24px);
-          border-top: 1px solid var(--line); border-radius: 20px 20px 0 0;
-          transform: translateY(100%); transition: transform 0.28s cubic-bezier(0.32,0.72,0,1);
-          max-height: 55%; display: flex; flex-direction: column;
+          display: none; /* hidden on desktop */
         }
-        .rcp-drawer.open { transform: translateY(0); }
+        @media (max-width: 768px) {
+          .rcp-drawer {
+            display: flex;
+            position: absolute; bottom: 0; left: 0; right: 0; z-index: 80;
+            background: rgba(13,16,32,0.98); backdrop-filter: blur(24px);
+            border-top: 1px solid var(--line); border-radius: 20px 20px 0 0;
+            transform: translateY(100%); transition: transform 0.28s cubic-bezier(0.32,0.72,0,1);
+            max-height: 55%; flex-direction: column;
+          }
+          .rcp-drawer.open { transform: translateY(0); }
+        }
+        .rcp-drawer-handle { width: 36px; height: 4px; background: var(--line); border-radius: 2px; margin: 12px auto 0; flex-shrink: 0; }
+        .rcp-drawer-head {
+          display: flex; align-items: center; justify-content: space-between;
+          padding: 10px 18px; border-bottom: 1px solid var(--line); flex-shrink: 0;
+        }
+        .rcp-drawer-title { font-family: var(--font-head); font-size: 15px; font-weight: 900; color: var(--text); letter-spacing: -0.02em; }
+        .rcp-drawer-close {
+          width: 30px; height: 30px; border-radius: 50%;
+          background: var(--bg3); border: 1px solid var(--line);
+          cursor: pointer; color: var(--muted);
+          display: flex; align-items: center; justify-content: center;
+        }
+        .rcp-drawer-body {
+          flex: 1; overflow-y: auto; padding: 12px 16px;
+          display: flex; flex-direction: column; gap: 10px;
+          overscroll-behavior: contain;
+        }
+        .rcp-drawer-empty { text-align: center; font-size: 13px; color: var(--dim); padding: 20px 0; }
+        .rcp-drawer-form {
+          display: flex; gap: 8px;
+          padding: 10px 16px max(env(safe-area-inset-bottom),14px);
+          border-top: 1px solid var(--line); flex-shrink: 0;
+        }
+        .rcp-drawer-input {
+          flex: 1; background: var(--bg3); border: 1px solid var(--line);
+          border-radius: 12px; padding: 11px 14px;
+          font-family: var(--font-body); font-size: 13px; color: var(--text); outline: none;
+          transition: border-color 0.15s;
+        }
+        .rcp-drawer-input::placeholder { color: var(--dim); }
+        .rcp-drawer-input:focus { border-color: rgba(167,139,250,0.4); }
+        .rcp-drawer-send {
+          width: 42px; height: 42px; border-radius: 12px;
+          background: linear-gradient(135deg, var(--cyan), var(--violet));
+          border: none; cursor: pointer;
+          display: flex; align-items: center; justify-content: center;
+          color: #080b12; flex-shrink: 0; align-self: flex-end;
+          transition: transform 0.1s, opacity 0.15s;
+        }
+        .rcp-drawer-send:disabled { background: var(--bg3); color: var(--dim); }
+        .rcp-drawer-send:active { transform: scale(0.9); }
+
+        /* ── NUKE ZEGO HANGUP ────────────────────── */
+        /* Kill ALL Zego-injected buttons/bars everywhere inside the video column */
+        .rcp-vcol button:not(.rcp-act-btn):not(.rcp-back-btn):not(.rcp-flag-btn),
+        .rcp-vcol [role="button"]:not(.rcp-act-btn) {
+          display: none !important;
+          visibility: hidden !important;
+          pointer-events: none !important;
+          width: 0 !important; height: 0 !important; opacity: 0 !important;
+        }
+        /* Ensure OUR buttons stay visible */
+        .rcp-call-actions button,
+        .rcp-call-actions [role="button"] {
+          display: flex !important;
+          visibility: visible !important;
+          pointer-events: auto !important;
+          width: 40px !important; height: 40px !important; opacity: 1 !important;
+        }
         .rcp-drawer-handle { width: 36px; height: 4px; background: var(--line); border-radius: 2px; margin: 12px auto 0; flex-shrink: 0; }
         .rcp-drawer-head {
           display: flex; align-items: center; justify-content: space-between;
@@ -1035,7 +1152,7 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
                   <div className="rcp-ctrl-icon ci-react"><SmilePlus size={20} /></div>
                   <span className="rcp-ctrl-label">React</span>
                 </button>
-                <button className="rcp-ctrl-btn" onClick={() => setShowLiveChat((p) => !p)} disabled={!isInCall}>
+                <button className="rcp-ctrl-btn rcp-ctrl-btn-chat-mobile" onClick={() => setShowLiveChat((p) => !p)} disabled={!isInCall}>
                   <div className={`rcp-ctrl-icon ci-chat ${showLiveChat ? "on" : ""}`}>
                     <MessageCircle size={20} />
                   </div>
