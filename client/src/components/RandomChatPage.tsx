@@ -18,43 +18,24 @@ import { connectSocket, disconnectSocket, getSocket } from "../lib/socket";
 import { MatchResult, RelationshipStatus, User } from "../types";
 import { VideoRoom } from "./VideoRoom";
 
-type RandomChatPageProps = {
-  token: string;
-  user: User;
-};
+type RandomChatPageProps = { token: string; user: User };
+type LiveChatMessage = { id: string; message: string; senderId: string; senderName: string; createdAt: string };
+type FloatingReaction = { id: string; emoji: string; own?: boolean };
 
-type LiveChatMessage = {
-  id: string;
-  message: string;
-  senderId: string;
-  senderName: string;
-  createdAt: string;
-};
-
-type FloatingReaction = {
-  id: string;
-  emoji: string;
-  own?: boolean;
-};
-
-const QUICK_REACTIONS = ["🔥", "👏", "😂", "❤️"];
+const QUICK_REACTIONS = ["🔥", "👏", "😂", "❤️", "💯", "👀"];
 
 function emit(event: string, payload?: unknown) {
   const socket = getSocket();
-  if (socket?.connected) {
-    payload !== undefined ? socket.emit(event, payload) : socket.emit(event);
-  }
+  if (socket?.connected) payload !== undefined ? socket.emit(event, payload) : socket.emit(event);
 }
 
 export function RandomChatPage({ token, user }: RandomChatPageProps) {
   const navigate = useNavigate();
-
   const [match, setMatch] = useState<MatchResult | null>(null);
   const [zegoRenderMatch, setZegoRenderMatch] = useState<MatchResult | null>(null);
   const [isMatching, setIsMatching] = useState(false);
   const [hasStarted, setHasStarted] = useState(false);
   const [zegoConnecting, setZegoConnecting] = useState(false);
-  const [roomRevealPending, setRoomRevealPending] = useState(false);
   const [zegoConfig, setZegoConfig] = useState({ appId: 0, serverSecret: "" });
   const [relationship, setRelationship] = useState<RelationshipStatus | null>(null);
   const [actionMessage, setActionMessage] = useState("");
@@ -72,13 +53,10 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [connectionIssue, setConnectionIssue] = useState("");
   const [showReactionTray, setShowReactionTray] = useState(false);
-
-  // FIX 2: Reversed swipe — left = next, right = stop
   const swipeStartX = useRef<number | null>(null);
   const swipeStartY = useRef<number | null>(null);
   const [swipeDelta, setSwipeDelta] = useState(0);
   const [swipeDir, setSwipeDir] = useState<"left" | "right" | null>(null);
-
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const hasStartedRef = useRef(hasStarted);
   const matchRef = useRef(match);
@@ -86,6 +64,7 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
   const previewRetryTimerRef = useRef<number | null>(null);
   const zegoTimeoutRef = useRef<number | null>(null);
   const liveChatBodyRef = useRef<HTMLDivElement | null>(null);
+  const vcolRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => { hasStartedRef.current = hasStarted; }, [hasStarted]);
   useEffect(() => { matchRef.current = match; }, [match]);
@@ -112,7 +91,6 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
     liveChatBodyRef.current?.scrollTo({ top: liveChatBodyRef.current.scrollHeight, behavior: "smooth" });
   }, [liveMessages, showLiveChat]);
 
-  // Local camera preview — ONLY before Zego is active
   useEffect(() => {
     if (hasStarted || zegoConnecting || zegoRenderMatch) return;
     let cancelled = false;
@@ -145,56 +123,26 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
     setZegoRenderMatch(null);
   }, [match]);
 
-  // Zego renders its hangup button as a sibling AFTER the video grid, inside the same
-  // parent div as VideoRoom. We use a ref on the vcol to watch only that subtree.
-  const vcolRef = useRef<HTMLDivElement>(null);
-
   useEffect(() => {
     const style = document.createElement("style");
     style.id = "zego-kill-ui";
     style.textContent = `
-      /* Zego's video grid should fill its container fully */
-      .rcp-zego-fill > div,
-      .rcp-zego-fill > div > div {
-        width: 100% !important;
-        height: 100% !important;
-        max-width: 100% !important;
-        max-height: 100% !important;
-        background: #0d0d10 !important;
+      .rcp-zego-fill > div, .rcp-zego-fill > div > div {
+        width: 100% !important; height: 100% !important;
+        max-width: 100% !important; max-height: 100% !important; background: #08080f !important;
       }
-      .rcp-zego-fill video {
-        width: 100% !important;
-        height: 100% !important;
-        object-fit: cover !important;
-      }
-      /* Hide the Zego bottom bar that Zego appends after its video grid */
+      .rcp-zego-fill video { width: 100% !important; height: 100% !important; object-fit: cover !important; }
       .rcp-vcol-inner > div:not(.rcp-zego-fill):not(.rcp-connecting):not(.rcp-idle):not(.rcp-call-badges):not(.rcp-call-actions):not(.rcp-floats):not(.rcp-swipe-hint) {
-        display: none !important;
-        visibility: hidden !important;
-        pointer-events: none !important;
-        height: 0 !important;
-        overflow: hidden !important;
-        opacity: 0 !important;
+        display: none !important; visibility: hidden !important; pointer-events: none !important;
+        height: 0 !important; overflow: hidden !important; opacity: 0 !important;
       }
     `;
-    if (!document.getElementById("zego-kill-ui")) {
-      document.head.appendChild(style);
-    }
-
-    const OUR_CLASSES = [
-      "rcp-zego-fill", "rcp-connecting", "rcp-idle", "rcp-call-badges",
-      "rcp-call-actions", "rcp-floats", "rcp-swipe-hint", "rcp-controls",
-      "rcp-topbar", "rcp-sheet", "rcp-drawer", "rcp-toast", "rcp-backdrop",
-    ];
-
-    const isOurEl = (el: Element): boolean =>
-      OUR_CLASSES.some((cls) => el.classList.contains(cls) || el.closest("." + cls) !== null);
-
+    if (!document.getElementById("zego-kill-ui")) document.head.appendChild(style);
+    const OUR_CLASSES = ["rcp-zego-fill","rcp-connecting","rcp-idle","rcp-call-badges","rcp-call-actions","rcp-floats","rcp-swipe-hint","rcp-controls","rcp-topbar","rcp-sheet","rcp-drawer","rcp-toast","rcp-backdrop"];
+    const isOurEl = (el: Element): boolean => OUR_CLASSES.some((cls) => el.classList.contains(cls) || el.closest("." + cls) !== null);
     const killZegoBar = () => {
       const vcol = vcolRef.current;
       if (!vcol) return;
-
-      // Any direct child of vcol that is NOT one of our known elements → hide it
       Array.from(vcol.children).forEach((child) => {
         if (!isOurEl(child)) {
           (child as HTMLElement).style.setProperty("display", "none", "important");
@@ -203,36 +151,24 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
           (child as HTMLElement).style.setProperty("pointer-events", "none", "important");
         }
       });
-
-      // Also scan for any button inside vcol that is NOT inside our elements
       vcol.querySelectorAll<HTMLElement>("button, [role='button']").forEach((btn) => {
-        if (!isOurEl(btn)) {
-          btn.style.setProperty("display", "none", "important");
-          btn.style.setProperty("pointer-events", "none", "important");
-        }
+        if (!isOurEl(btn)) { btn.style.setProperty("display", "none", "important"); btn.style.setProperty("pointer-events", "none", "important"); }
       });
-
-      // Remove "Media play failed" body-level overlays
       document.body.querySelectorAll<HTMLElement>(":scope > div").forEach((el) => {
         const txt = el.textContent || "";
         if (txt.includes("Media play failed") || txt.includes("Resume")) el.remove();
       });
     };
-
     killZegoBar();
     const observer = new MutationObserver(killZegoBar);
     observer.observe(document.body, { childList: true, subtree: true });
-
-    return () => {
-      observer.disconnect();
-      document.getElementById("zego-kill-ui")?.remove();
-    };
+    return () => { observer.disconnect(); document.getElementById("zego-kill-ui")?.remove(); };
   }, []);
 
   useEffect(() => {
     if (!zegoConnecting) return;
     zegoTimeoutRef.current = window.setTimeout(() => {
-      setMatch(null); setZegoRenderMatch(null); setZegoConnecting(false); setRoomRevealPending(false);
+      setMatch(null); setZegoRenderMatch(null); setZegoConnecting(false);
       setConnectionIssue("Video connection timed out. Try another partner.");
     }, 12000);
     return () => { if (zegoTimeoutRef.current !== null) { window.clearTimeout(zegoTimeoutRef.current); zegoTimeoutRef.current = null; } };
@@ -255,16 +191,15 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
     socket.on("connect", () => {
       if (hasStartedRef.current && !matchRef.current && !isMatchingRef.current) { setIsMatching(true); socket.emit("match:join-queue"); }
     });
-    socket.on("match:waiting", () => {});
     socket.on("match:found", (payload: MatchResult) => {
       if (zegoTimeoutRef.current !== null) { window.clearTimeout(zegoTimeoutRef.current); zegoTimeoutRef.current = null; }
-      setZegoConnecting(true); setRoomRevealPending(true); setMatch(payload);
+      setZegoConnecting(true); setMatch(payload);
       setShowLiveChat(false); setLiveMessages([]); setFloatingReactions([]);
       setCallStartedAt(null); setConnectionIssue(""); setIsMatching(false); setHasStarted(true);
     });
     socket.on("match:partner-left", () => {
       socket.emit("match:leave-room");
-      setMatch(null); setZegoConnecting(false); setRoomRevealPending(false);
+      setMatch(null); setZegoConnecting(false);
       setShowLiveChat(false); setCallStartedAt(null); setConnectionIssue("");
       if (hasStartedRef.current) {
         setIsMatching(true);
@@ -278,8 +213,8 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
     });
     socket.on("match:chat", (payload: LiveChatMessage) => setLiveMessages((c) => [...c.slice(-19), payload]));
     return () => {
-      socket.off("connect"); socket.off("match:waiting"); socket.off("match:found");
-      socket.off("match:partner-left"); socket.off("match:reaction"); socket.off("match:chat");
+      socket.off("connect"); socket.off("match:found"); socket.off("match:partner-left");
+      socket.off("match:reaction"); socket.off("match:chat");
       if (socket.connected) { socket.emit("match:leave-room"); socket.emit("match:leave-queue"); }
       disconnectSocket();
     };
@@ -298,10 +233,9 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
     setSwipeDelta(dx); setSwipeDir(dx > 0 ? "right" : "left");
   }
   function handleTouchEnd() {
-    // FIX 2: REVERSED — left swipe = next, right swipe = stop
     if (Math.abs(swipeDelta) > 80 && hasStarted) {
-      if (swipeDir === "left" && isInCall) nextMatch();       // LEFT = Next
-      else if (swipeDir === "right") stopMatching();          // RIGHT = Stop
+      if (swipeDir === "left" && isInCall) nextMatch();
+      else if (swipeDir === "right") stopMatching();
     }
     setSwipeDelta(0); setSwipeDir(null);
     swipeStartX.current = null; swipeStartY.current = null;
@@ -310,21 +244,20 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
   async function handleFriendAction() {
     if (!match?.partner || !relationship || actionBusy) return;
     try {
-      if (relationship.isFriend) { setActionMessage("You are already friends."); return; }
+      if (relationship.isFriend) { setActionMessage("Already friends!"); return; }
       if (relationship.incomingRequestPending && relationship.incomingRequestId) {
         setActionBusy("accept");
         await api.post(`/friend-requests/${relationship.incomingRequestId}/accept`);
         setRelationship((c) => c ? { ...c, isFriend: true, incomingRequestPending: false, incomingRequestId: null } : c);
-        setActionMessage("Friend request accepted."); return;
+        setActionMessage("Friend request accepted!"); return;
       }
-      if (relationship.outgoingRequestPending) { setActionMessage("Friend request already sent."); return; }
+      if (relationship.outgoingRequestPending) { setActionMessage("Request already sent."); return; }
       setActionBusy("friend");
       await api.post("/friend-requests", { receiverId: match.partner.id });
       setRelationship((c) => c ? { ...c, outgoingRequestPending: true } : c);
-      setActionMessage("Friend request sent.");
-    } catch (error: any) {
-      setActionMessage(error?.response?.data?.message ?? "Could not update friendship.");
-    } finally { setActionBusy(null); }
+      setActionMessage("Friend request sent!");
+    } catch (error: any) { setActionMessage(error?.response?.data?.message ?? "Could not update friendship."); }
+    finally { setActionBusy(null); }
   }
 
   async function submitReport() {
@@ -332,11 +265,9 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
     try {
       setActionBusy("report");
       await api.post(`/users/${match.partner.id}/report`, { reason: reportReason, details: reportDetails });
-      setActionMessage("Report submitted.");
-      setShowReportSheet(false); setReportDetails("");
-    } catch (error: any) {
-      setActionMessage(error?.response?.data?.message ?? "Could not submit report.");
-    } finally { setActionBusy(null); }
+      setActionMessage("Report submitted."); setShowReportSheet(false); setReportDetails("");
+    } catch (error: any) { setActionMessage(error?.response?.data?.message ?? "Could not submit report."); }
+    finally { setActionBusy(null); }
   }
 
   async function confirmBlock() {
@@ -344,11 +275,10 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
     try {
       setActionBusy("block");
       await api.post(`/users/${match.partner.id}/block`, { reason: blockReason });
-      setActionMessage(`${match.partner.fullName.split(" ")[0]} has been blocked.`);
+      setActionMessage(`${match.partner.fullName.split(" ")[0]} blocked.`);
       setShowBlockSheet(false); nextMatch();
-    } catch (error: any) {
-      setActionMessage(error?.response?.data?.message ?? "Could not block this user.");
-    } finally { setActionBusy(null); }
+    } catch (error: any) { setActionMessage(error?.response?.data?.message ?? "Could not block user."); }
+    finally { setActionBusy(null); }
   }
 
   function getFriendLabel() {
@@ -361,25 +291,24 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
   }
 
   function startMatching() {
-    setMatch(null); setZegoConnecting(false); setRoomRevealPending(false);
-    setShowLiveChat(false); setLiveMessages([]); setFloatingReactions([]);
-    setCallStartedAt(null); setConnectionIssue(""); setIsMatching(true); setHasStarted(true);
-    emit("match:join-queue");
+    setMatch(null); setZegoConnecting(false); setShowLiveChat(false); setLiveMessages([]);
+    setFloatingReactions([]); setCallStartedAt(null); setConnectionIssue("");
+    setIsMatching(true); setHasStarted(true); emit("match:join-queue");
   }
 
   function stopMatching() {
     setHasStarted(false); hasStartedRef.current = false;
     emit("match:leave-room"); emit("match:leave-queue");
-    setMatch(null); setZegoConnecting(false); setRoomRevealPending(false);
-    setShowLiveChat(false); setLiveMessages([]); setFloatingReactions([]);
-    setCallStartedAt(null); setConnectionIssue(""); setIsMatching(false);
+    setMatch(null); setZegoConnecting(false); setShowLiveChat(false);
+    setLiveMessages([]); setFloatingReactions([]); setCallStartedAt(null);
+    setConnectionIssue(""); setIsMatching(false);
   }
 
   function nextMatch() {
     emit("match:leave-room");
-    setMatch(null); setZegoConnecting(false); setRoomRevealPending(false);
-    setShowLiveChat(false); setLiveMessages([]); setFloatingReactions([]);
-    setCallStartedAt(null); setConnectionIssue(""); setIsMatching(true); setHasStarted(true);
+    setMatch(null); setZegoConnecting(false); setShowLiveChat(false);
+    setLiveMessages([]); setFloatingReactions([]); setCallStartedAt(null);
+    setConnectionIssue(""); setIsMatching(true); setHasStarted(true);
     window.setTimeout(() => emit("match:join-queue"), 120);
   }
 
@@ -403,213 +332,193 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
   return (
     <>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500;600&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Cabinet+Grotesk:wght@400;500;700;800;900&family=Instrument+Sans:ital,wght@0,400;0,500;1,400&display=swap');
+
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        :root {
+          --bg:    #080b12;
+          --bg2:   #0d1020;
+          --bg3:   #111520;
+          --bg4:   #0a0d18;
+          --cyan:  #22d3ee;
+          --pink:  #f472b6;
+          --violet:#a78bfa;
+          --lime:  #d4f244;
+          --text:  #f1f5f9;
+          --muted: rgba(241,245,249,0.44);
+          --dim:   rgba(241,245,249,0.18);
+          --line:  rgba(241,245,249,0.07);
+          --font-display: 'Bebas Neue', sans-serif;
+          --font-head: 'Cabinet Grotesk', sans-serif;
+          --font-body: 'Instrument Sans', sans-serif;
+        }
 
         .rcp-root {
           display: flex; flex-direction: column;
           height: 100dvh; width: 100%;
-          background: #0a0a0b;
-          font-family: 'DM Sans', sans-serif;
+          background: var(--bg);
+          font-family: var(--font-body);
           overflow: hidden; position: relative;
+          color: var(--text);
         }
 
-        /* TOP BAR */
+        /* ── TOP BAR ─────────────────────────────── */
         .rcp-topbar {
           display: flex; align-items: center; justify-content: space-between;
           padding: max(env(safe-area-inset-top), 10px) 20px 10px;
-          background: #0a0a0b;
-          border-bottom: 1px solid rgba(255,255,255,0.06);
-          flex-shrink: 0; z-index: 50; height: 52px;
+          background: rgba(8,11,18,0.9); backdrop-filter: blur(16px);
+          border-bottom: 1px solid var(--line);
+          flex-shrink: 0; z-index: 50; height: 56px;
         }
-        .rcp-wordmark {
-          font-family: 'Syne', sans-serif; font-weight: 800; font-size: 18px;
-          color: #fff; letter-spacing: -0.5px; cursor: pointer;
-          display: flex; align-items: center; gap: 8px; user-select: none;
+        .rcp-logo {
+          display: flex; align-items: center; gap: 10px;
+          cursor: pointer; user-select: none; text-decoration: none;
         }
-        .rcp-badge {
-          font-size: 10px; font-weight: 600; letter-spacing: 1.5px;
-          color: #e5ff00; text-transform: uppercase;
-          background: rgba(229,255,0,0.1); border: 1px solid rgba(229,255,0,0.25);
-          border-radius: 4px; padding: 2px 6px; font-family: 'DM Sans', sans-serif;
+        .rcp-logo-icon {
+          width: 30px; height: 30px; border-radius: 8px;
+          background: linear-gradient(135deg, var(--violet), var(--pink));
+          display: flex; align-items: center; justify-content: center;
+          font-family: var(--font-head); font-weight: 900; font-size: 11px; color: #fff;
+        }
+        .rcp-logo-text {
+          font-family: var(--font-head); font-weight: 900; font-size: 16px; color: var(--text);
+        }
+        .rcp-logo-badge {
+          font-family: var(--font-head); font-size: 9px; font-weight: 700;
+          letter-spacing: 0.15em; text-transform: uppercase;
+          color: var(--cyan); background: rgba(34,211,238,0.1);
+          border: 1px solid rgba(34,211,238,0.2);
+          border-radius: 4px; padding: 2px 6px;
         }
         .rcp-topbar-right { display: flex; align-items: center; gap: 10px; }
-        .rcp-status-chip {
+        .rcp-status-pill {
           display: flex; align-items: center; gap: 6px;
-          padding: 5px 12px; border-radius: 100px;
-          background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08);
-          font-size: 12px; font-weight: 500; color: rgba(255,255,255,0.6);
+          padding: 5px 13px; border-radius: 100px;
+          background: rgba(255,255,255,0.04); border: 1px solid var(--line);
+          font-family: var(--font-head); font-size: 11px; font-weight: 700;
+          color: var(--dim); letter-spacing: 0.05em;
         }
-        .rcp-dot {
-          width: 7px; height: 7px; border-radius: 50%; background: #555; flex-shrink: 0;
-        }
-        .rcp-dot.live { background: #4ade80; box-shadow: 0 0 8px #4ade8080; }
-        .rcp-dot.searching { background: #e5ff00; animation: rcpPulse 1.2s ease-in-out infinite; }
-        @keyframes rcpPulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.4;transform:scale(0.75)} }
+        .rcp-dot { width: 6px; height: 6px; border-radius: 50%; background: #333; flex-shrink: 0; }
+        .rcp-dot.live { background: #4ade80; box-shadow: 0 0 8px rgba(74,222,128,0.6); }
+        .rcp-dot.searching { background: var(--cyan); animation: rcp-blink 1.1s ease-in-out infinite; }
+        @keyframes rcp-blink { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.3;transform:scale(0.7)} }
         .rcp-back-btn {
-          width: 34px; height: 34px; border-radius: 10px;
-          background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1);
+          width: 34px; height: 34px; border-radius: 9px;
+          background: rgba(255,255,255,0.05); border: 1px solid var(--line);
           display: flex; align-items: center; justify-content: center;
-          color: rgba(255,255,255,0.6); cursor: pointer; transition: background 0.15s, color 0.15s;
-          flex-shrink: 0;
+          color: var(--dim); cursor: pointer; transition: all 0.15s;
         }
-        .rcp-back-btn:hover { background: rgba(255,255,255,0.1); color: #fff; }
+        .rcp-back-btn:hover { background: rgba(255,255,255,0.1); color: var(--text); }
         .rcp-flag-btn {
-          width: 34px; height: 34px; border-radius: 10px;
-          background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.2);
+          width: 34px; height: 34px; border-radius: 9px;
+          background: rgba(244,114,182,0.08); border: 1px solid rgba(244,114,182,0.2);
           display: flex; align-items: center; justify-content: center;
-          color: #f87171; cursor: pointer; transition: background 0.15s;
+          color: var(--pink); cursor: pointer; transition: background 0.15s;
         }
-        .rcp-flag-btn:hover { background: rgba(239,68,68,0.2); }
+        .rcp-flag-btn:hover { background: rgba(244,114,182,0.16); }
 
-        /* BODY */
+        /* ── BODY ────────────────────────────────── */
         .rcp-body { flex: 1; display: flex; min-height: 0; overflow: hidden; }
 
-        /* Desktop: video | chat sidebar */
         @media (min-width: 769px) {
           .rcp-body { flex-direction: row; }
-          .rcp-vcol {
-            flex: 0 0 62%; position: relative;
-            background: #0d0d10;
-            border-right: 1px solid rgba(255,255,255,0.06);
-            /* Fill full height — no dead space below videos */
-            display: flex; flex-direction: column;
-          }
-          .rcp-sidebar { flex: 1; display: flex; flex-direction: column; background: #0a0a0c; }
+          .rcp-vcol { flex: 0 0 62%; position: relative; background: var(--bg4); border-right: 1px solid var(--line); display: flex; flex-direction: column; }
+          .rcp-sidebar { flex: 1; display: flex; flex-direction: column; background: var(--bg2); }
         }
-        /* Mobile: video full width, no sidebar */
         @media (max-width: 768px) {
           .rcp-body { flex-direction: column; }
-          .rcp-vcol { flex: 1; position: relative; background: #0d0d10; min-height: 0; }
+          .rcp-vcol { flex: 1; position: relative; background: var(--bg4); min-height: 0; }
           .rcp-sidebar { display: none; }
         }
 
-        /* Zego fills entire video column — both local + remote inside */
+        /* ── ZEGO FILL ───────────────────────────── */
         .rcp-zego-fill {
-          position: absolute; inset: 0;
-          width: 100%; height: 100%;
+          position: absolute; inset: 0; width: 100%; height: 100%;
         }
+        .rcp-zego-fill [class*="footer"], .rcp-zego-fill [class*="Footer"],
+        .rcp-zego-fill [class*="leave"],  .rcp-zego-fill [class*="Leave"],
+        .rcp-zego-fill [class*="toolbar"],.rcp-zego-fill [class*="Toolbar"] {
+          display: none !important; visibility: hidden !important;
+          pointer-events: none !important; height: 0 !important; opacity: 0 !important;
+        }
+        .rcp-zego-fill > div, .rcp-zego-fill > div > div {
+          width: 100% !important; height: 100% !important;
+          max-width: 100% !important; max-height: 100% !important;
+          background: var(--bg4) !important;
+        }
+        .rcp-zego-fill video { width: 100% !important; height: 100% !important; object-fit: cover !important; }
 
-        /* Hide ONLY Zego's internal chrome — scoped strictly to .rcp-zego-fill */
-        .rcp-zego-fill [class*="footer"],
-        .rcp-zego-fill [class*="Footer"],
-        .rcp-zego-fill [class*="leave"],
-        .rcp-zego-fill [class*="Leave"],
-        .rcp-zego-fill [class*="hangup"],
-        .rcp-zego-fill [class*="Hangup"],
-        .rcp-zego-fill [class*="toolbar"],
-        .rcp-zego-fill [class*="Toolbar"] {
-          display: none !important;
-          visibility: hidden !important;
-          pointer-events: none !important;
-          height: 0 !important;
-          overflow: hidden !important;
-          opacity: 0 !important;
-        }
-        /* Make Zego's root container and video grid fill everything */
-        .rcp-zego-fill > div,
-        .rcp-zego-fill > div > div {
-          width: 100% !important;
-          height: 100% !important;
-          max-width: 100% !important;
-          max-height: 100% !important;
-          background: #0d0d10 !important;
-        }
-        .rcp-zego-fill video {
-          width: 100% !important;
-          height: 100% !important;
-          object-fit: cover !important;
-        }
-
-        /* Idle / connecting screen */
+        /* ── IDLE ────────────────────────────────── */
         .rcp-idle {
           position: absolute; inset: 0; z-index: 2;
-          display: flex; flex-direction: column;
-          align-items: center; justify-content: center; gap: 0;
-          background: linear-gradient(145deg, #0e0e16 0%, #0a0a0f 100%);
-          padding: 20px;
+          display: flex; flex-direction: column; align-items: center; justify-content: center;
+          background: var(--bg4);
         }
-
-        /* FIX 3: Idle video preview — large, full-area layout matching connected state */
-        .rcp-idle-video-wrap {
-          position: absolute; inset: 0;
-          width: 100%; height: 100%;
-          overflow: hidden;
-        }
-        .rcp-idle-video-wrap video {
-          width: 100%; height: 100%; object-fit: cover; display: block;
-        }
-        /* Dark overlay so text is readable over the preview */
+        .rcp-idle-video-wrap { position: absolute; inset: 0; width: 100%; height: 100%; overflow: hidden; }
+        .rcp-idle-video-wrap video { width: 100%; height: 100%; object-fit: cover; display: block; }
         .rcp-idle-video-wrap::after {
-          content: '';
-          position: absolute; inset: 0;
-          background: linear-gradient(
-            to bottom,
-            rgba(0,0,0,0.15) 0%,
-            rgba(0,0,0,0.05) 40%,
-            rgba(0,0,0,0.35) 100%
-          );
+          content: ''; position: absolute; inset: 0;
+          background: linear-gradient(to bottom, rgba(8,11,18,0.2) 0%, rgba(8,11,18,0.05) 50%, rgba(8,11,18,0.5) 100%);
           pointer-events: none;
         }
-        /* Overlay content on top of the full-screen preview */
         .rcp-idle-overlay {
           position: absolute; inset: 0; z-index: 3;
-          display: flex; flex-direction: column;
-          align-items: center; justify-content: center; gap: 10px;
+          display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px;
           pointer-events: none;
         }
-        .rcp-idle-icon {
-          width: 56px; height: 56px; border-radius: 18px;
-          background: rgba(0,0,0,0.45); backdrop-filter: blur(12px);
-          border: 1px solid rgba(255,255,255,0.12);
+        .rcp-idle-orb {
+          width: 64px; height: 64px; border-radius: 20px;
+          background: rgba(8,11,18,0.6); backdrop-filter: blur(16px);
+          border: 1px solid rgba(241,245,249,0.12);
           display: flex; align-items: center; justify-content: center;
         }
-        .rcp-idle-txt {
-          font-size: 15px; font-weight: 600; color: rgba(255,255,255,0.9);
-          text-shadow: 0 1px 8px rgba(0,0,0,0.6);
+        .rcp-idle-title {
+          font-family: var(--font-head); font-size: 16px; font-weight: 800;
+          color: rgba(241,245,249,0.9); letter-spacing: -0.02em;
+          text-shadow: 0 2px 12px rgba(0,0,0,0.7);
         }
         .rcp-idle-sub {
-          font-size: 12px; color: rgba(255,255,255,0.5);
-          text-shadow: 0 1px 6px rgba(0,0,0,0.5);
+          font-size: 12px; color: rgba(241,245,249,0.45);
+          text-shadow: 0 1px 8px rgba(0,0,0,0.6);
         }
-        /* "You" label at bottom-left of preview, like connected state */
         .rcp-you-tag {
-          position: absolute; bottom: 14px; left: 14px; z-index: 4;
-          background: rgba(0,0,0,0.55); backdrop-filter: blur(8px);
-          border: 1px solid rgba(255,255,255,0.1);
-          border-radius: 8px; padding: 4px 12px;
-          font-size: 11px; font-weight: 600; color: rgba(255,255,255,0.6);
-          text-transform: uppercase; letter-spacing: 0.8px;
-          font-family: 'Syne', sans-serif;
+          position: absolute; bottom: 16px; left: 16px; z-index: 4;
+          background: rgba(8,11,18,0.6); backdrop-filter: blur(10px);
+          border: 1px solid var(--line); border-radius: 8px; padding: 4px 12px;
+          font-family: var(--font-head); font-size: 10px; font-weight: 700;
+          color: var(--dim); text-transform: uppercase; letter-spacing: 0.1em;
         }
 
-        /* Spinner */
-        .rcp-spin-wrap { display: flex; flex-direction: column; align-items: center; gap: 14px; position: relative; z-index: 3; }
-        .rcp-spin {
-          width: 44px; height: 44px; position: relative;
+        /* ── SEARCHING ───────────────────────────── */
+        .rcp-searching-wrap {
+          display: flex; flex-direction: column; align-items: center; gap: 16px; position: relative; z-index: 3;
         }
-        .rcp-spin::before, .rcp-spin::after {
+        .rcp-spin-ring {
+          width: 52px; height: 52px; position: relative;
+        }
+        .rcp-spin-ring::before, .rcp-spin-ring::after {
           content: ''; position: absolute; border-radius: 50%;
-          border: 2px solid transparent; border-top-color: #e5ff00;
-          animation: rcpSpin 1s linear infinite;
+          border: 2px solid transparent; animation: rcp-spin 1s linear infinite;
           top: 0; left: 0; width: 100%; height: 100%;
         }
-        .rcp-spin::after {
-          width: 28px; height: 28px; top: 8px; left: 8px;
-          animation-duration: 0.65s; border-top-color: rgba(229,255,0,0.25);
-        }
-        @keyframes rcpSpin { to { transform: rotate(360deg); } }
+        .rcp-spin-ring::before { border-top-color: var(--cyan); }
+        .rcp-spin-ring::after { width: 30px; height: 30px; top: 11px; left: 11px; border-top-color: rgba(167,139,250,0.5); animation-duration: 0.65s; }
+        @keyframes rcp-spin { to { transform: rotate(360deg); } }
 
-        /* Connecting overlay on top of Zego */
+        /* ── CONNECTING ──────────────────────────── */
         .rcp-connecting {
           position: absolute; inset: 0; z-index: 10;
-          background: #0d0d10;
+          background: var(--bg4);
           display: flex; align-items: center; justify-content: center;
           flex-direction: column; gap: 14px;
-          transition: opacity 0.4s ease;
+        }
+        .rcp-connecting-name {
+          font-family: var(--font-head); font-size: 15px; font-weight: 700;
+          color: var(--muted); letter-spacing: -0.01em;
         }
 
-        /* In-call badges */
+        /* ── CALL BADGES ─────────────────────────── */
         .rcp-call-badges {
           position: absolute; top: 14px; left: 14px;
           display: flex; align-items: center; gap: 8px;
@@ -617,278 +526,306 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
         }
         .rcp-live-pill {
           display: flex; align-items: center; gap: 5px;
-          background: rgba(220,38,38,0.9); border-radius: 6px; padding: 4px 8px;
-          font-size: 10px; font-weight: 700; color: #fff; letter-spacing: 1px;
-          text-transform: uppercase; font-family: 'Syne', sans-serif;
+          background: rgba(220,38,38,0.88); border-radius: 7px; padding: 4px 9px;
+          font-family: var(--font-head); font-size: 10px; font-weight: 800;
+          color: #fff; letter-spacing: 0.12em; text-transform: uppercase;
         }
-        .rcp-live-blink { width: 5px; height: 5px; border-radius: 50%; background: #fff; animation: rcpPulse 0.9s infinite; }
+        .rcp-live-blink { width: 5px; height: 5px; border-radius: 50%; background: #fff; animation: rcp-blink 0.9s infinite; }
         .rcp-name-chip {
-          background: rgba(0,0,0,0.55); backdrop-filter: blur(10px);
-          border: 1px solid rgba(255,255,255,0.12); border-radius: 8px; padding: 4px 10px;
-          font-size: 12px; font-weight: 600; color: #fff;
+          background: rgba(8,11,18,0.6); backdrop-filter: blur(12px);
+          border: 1px solid var(--line); border-radius: 8px; padding: 4px 11px;
+          font-family: var(--font-head); font-size: 12px; font-weight: 700; color: var(--text);
         }
         .rcp-timer-chip {
-          background: rgba(0,0,0,0.4); backdrop-filter: blur(6px);
-          border-radius: 6px; padding: 3px 8px;
-          font-size: 11px; color: rgba(255,255,255,0.55);
+          background: rgba(8,11,18,0.45); backdrop-filter: blur(8px);
+          border-radius: 7px; padding: 4px 9px;
+          font-family: var(--font-head); font-size: 11px; font-weight: 600; color: var(--muted);
           font-variant-numeric: tabular-nums;
         }
+
+        /* ── CALL ACTIONS ────────────────────────── */
         .rcp-call-actions {
           position: absolute; top: 14px; right: 14px;
           display: flex; flex-direction: column; gap: 8px; z-index: 5;
         }
         .rcp-act-btn {
-          width: 38px; height: 38px; border-radius: 12px;
+          width: 40px; height: 40px; border-radius: 12px;
           display: flex; align-items: center; justify-content: center;
           cursor: pointer; border: none; transition: transform 0.12s, opacity 0.15s;
         }
-        .rcp-act-btn:active { transform: scale(0.88); }
-        .rcp-act-btn:disabled { opacity: 0.3; cursor: default; }
-        .rcp-act-btn.friend { background: rgba(167,139,250,0.15); border: 1px solid rgba(167,139,250,0.3); color: #a78bfa; }
-        .rcp-act-btn.block  { background: rgba(248,113,113,0.12); border: 1px solid rgba(248,113,113,0.25); color: #f87171; }
+        .rcp-act-btn:active { transform: scale(0.86); }
+        .rcp-act-btn:disabled { opacity: 0.25; cursor: default; }
+        .rcp-act-btn.friend { background: rgba(167,139,250,0.12); border: 1px solid rgba(167,139,250,0.28); color: var(--violet); }
+        .rcp-act-btn.block  { background: rgba(244,114,182,0.1);  border: 1px solid rgba(244,114,182,0.22); color: var(--pink); }
+        .rcp-act-btn.friend:not(:disabled):hover { background: rgba(167,139,250,0.22); }
+        .rcp-act-btn.block:not(:disabled):hover  { background: rgba(244,114,182,0.2); }
 
-        /* Floating reactions */
+        /* ── FLOATING REACTIONS ──────────────────── */
         .rcp-floats {
-          position: absolute; bottom: 16px; left: 16px;
+          position: absolute; bottom: 20px; left: 16px;
           pointer-events: none; z-index: 6;
           display: flex; flex-direction: column-reverse; gap: 4px;
         }
-        .rcp-emoji { font-size: 28px; animation: rcpFloat 2.2s ease-out forwards; }
-        .rcp-emoji.own { filter: drop-shadow(0 0 8px rgba(229,255,0,0.5)); }
-        @keyframes rcpFloat {
-          0%   { opacity: 1; transform: translateY(0) scale(1); }
-          70%  { opacity: 0.8; }
-          100% { opacity: 0; transform: translateY(-100px) scale(1.5); }
-        }
+        .rcp-emoji { font-size: 30px; animation: rcp-float 2.2s ease-out forwards; }
+        .rcp-emoji.own { filter: drop-shadow(0 0 10px rgba(167,139,250,0.7)); }
+        @keyframes rcp-float { 0%{opacity:1;transform:translateY(0) scale(1)} 70%{opacity:0.8} 100%{opacity:0;transform:translateY(-110px) scale(1.6)} }
 
-        /* FIX 2: Swipe hints — reversed labels */
+        /* ── SWIPE HINTS ─────────────────────────── */
         .rcp-swipe-hint {
-          position: absolute; inset: 0;
-          display: flex; align-items: center; justify-content: center;
-          pointer-events: none; z-index: 8; opacity: 0; transition: opacity 0.15s;
+          position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+          pointer-events: none; z-index: 8; opacity: 0; transition: opacity 0.12s;
         }
         .rcp-swipe-hint.on { opacity: 1; }
         .rcp-swipe-lbl {
-          font-size: 22px; font-weight: 800;
-          font-family: 'Syne', sans-serif;
-          padding: 10px 24px; border-radius: 14px; backdrop-filter: blur(14px);
+          font-family: var(--font-head); font-size: 20px; font-weight: 900;
+          padding: 12px 28px; border-radius: 16px; backdrop-filter: blur(16px);
+          letter-spacing: -0.02em;
         }
-        /* LEFT = Next (was right) */
-        .rcp-swipe-lbl.next { background: rgba(229,255,0,0.18); border: 2px solid rgba(229,255,0,0.5); color: #e5ff00; }
-        /* RIGHT = Stop (was left) */
-        .rcp-swipe-lbl.stop { background: rgba(239,68,68,0.18); border: 2px solid rgba(239,68,68,0.5); color: #f87171; }
+        .rcp-swipe-lbl.next { background: rgba(34,211,238,0.15); border: 2px solid rgba(34,211,238,0.45); color: var(--cyan); }
+        .rcp-swipe-lbl.stop { background: rgba(244,114,182,0.15); border: 2px solid rgba(244,114,182,0.45); color: var(--pink); }
 
-        /* DESKTOP SIDEBAR */
+        /* ── DESKTOP SIDEBAR ─────────────────────── */
         .rcp-sidebar-head {
-          padding: 16px 18px 12px;
-          border-bottom: 1px solid rgba(255,255,255,0.05); flex-shrink: 0;
+          padding: 18px 20px 14px; border-bottom: 1px solid var(--line); flex-shrink: 0;
         }
+        .rcp-sidebar-eyebrow {
+          font-family: var(--font-head); font-size: 10px; font-weight: 700;
+          letter-spacing: 0.18em; text-transform: uppercase; color: var(--cyan);
+          display: flex; align-items: center; gap: 8px; margin-bottom: 4px;
+        }
+        .rcp-sidebar-eyebrow::before { content: ''; width: 14px; height: 1px; background: var(--cyan); opacity: 0.5; }
         .rcp-sidebar-title {
-          font-size: 11px; font-weight: 700; color: rgba(255,255,255,0.25);
-          letter-spacing: 1.2px; text-transform: uppercase; font-family: 'Syne', sans-serif;
+          font-family: var(--font-head); font-size: 18px; font-weight: 900;
+          color: var(--text); letter-spacing: -0.03em;
         }
         .rcp-sidebar-msgs {
+          flex: 1; overflow-y: auto; padding: 16px;
+          display: flex; flex-direction: column; gap: 10px;
+          overscroll-behavior: contain;
+          scrollbar-width: thin; scrollbar-color: rgba(241,245,249,0.08) transparent;
+        }
+        .rcp-sidebar-empty {
+          text-align: center; font-size: 13px; color: var(--dim);
+          padding: 40px 20px; line-height: 1.8;
+        }
+        .rcp-sidebar-empty svg { display: block; margin: 0 auto 12px; opacity: 0.3; }
+        .rcp-sidebar-form {
+          display: flex; gap: 8px;
+          padding: 14px 16px max(env(safe-area-inset-bottom),16px);
+          border-top: 1px solid var(--line); flex-shrink: 0;
+        }
+        .rcp-sidebar-input {
+          flex: 1; background: var(--bg3); border: 1px solid var(--line);
+          border-radius: 12px; padding: 11px 14px;
+          font-family: var(--font-body); font-size: 13px; color: var(--text); outline: none;
+          transition: border-color 0.15s;
+        }
+        .rcp-sidebar-input::placeholder { color: var(--dim); }
+        .rcp-sidebar-input:focus { border-color: rgba(167,139,250,0.4); }
+        .rcp-sidebar-send {
+          width: 42px; height: 42px; flex-shrink: 0; align-self: flex-end;
+          border-radius: 12px; background: linear-gradient(135deg, var(--cyan), var(--violet));
+          border: none; cursor: pointer;
+          display: flex; align-items: center; justify-content: center;
+          color: #080b12; transition: transform 0.1s, opacity 0.15s;
+        }
+        .rcp-sidebar-send:disabled { background: var(--bg3); color: var(--dim); }
+        .rcp-sidebar-send:not(:disabled):active { transform: scale(0.9); }
+
+        /* ── CHAT BUBBLES ────────────────────────── */
+        .rcp-bubble {
+          max-width: 84%; padding: 9px 13px; border-radius: 14px;
+          font-family: var(--font-body); font-size: 13.5px; line-height: 1.5;
+        }
+        .rcp-bubble.mine {
+          align-self: flex-end; background: linear-gradient(135deg, var(--violet), var(--pink));
+          color: #fff; border-bottom-right-radius: 4px;
+        }
+        .rcp-bubble.theirs {
+          align-self: flex-start; background: var(--bg3);
+          border: 1px solid var(--line); color: var(--text); border-bottom-left-radius: 4px;
+        }
+        .rcp-bubble-name {
+          font-family: var(--font-head); font-size: 10px; font-weight: 700;
+          opacity: 0.6; margin-bottom: 3px; text-transform: uppercase; letter-spacing: 0.06em;
+        }
+
+        /* ── BOTTOM CONTROLS ─────────────────────── */
+        .rcp-controls {
+          flex-shrink: 0; background: rgba(8,11,18,0.95); backdrop-filter: blur(16px);
+          border-top: 1px solid var(--line);
+          padding: 12px 20px max(env(safe-area-inset-bottom),14px);
+          display: flex; align-items: center; gap: 12px; z-index: 50; position: relative;
+        }
+        .rcp-react-tray {
+          position: absolute; bottom: 100%; left: 0; right: 0;
+          display: flex; justify-content: center; gap: 8px; padding: 12px 16px;
+          background: rgba(8,11,18,0.97); backdrop-filter: blur(16px);
+          border-top: 1px solid var(--line);
+          animation: rcp-up 0.18s ease;
+        }
+        @keyframes rcp-up { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:translateY(0)} }
+        .rcp-emoji-pick {
+          padding: 8px 14px; border-radius: 100px;
+          background: var(--bg3); border: 1px solid var(--line);
+          font-size: 22px; cursor: pointer; transition: transform 0.1s, border-color 0.15s;
+        }
+        .rcp-emoji-pick:hover { border-color: rgba(167,139,250,0.3); }
+        .rcp-emoji-pick:active { transform: scale(0.82); }
+
+        .rcp-ctrl-grp { display: flex; align-items: center; gap: 10px; }
+
+        .rcp-ctrl-btn {
+          display: flex; flex-direction: column; align-items: center; gap: 5px;
+          background: none; border: none; cursor: pointer; padding: 0; min-width: 56px;
+        }
+        .rcp-ctrl-btn:disabled { opacity: 0.25; cursor: default; }
+        .rcp-ctrl-icon {
+          width: 54px; height: 54px; border-radius: 18px;
+          display: flex; align-items: center; justify-content: center;
+          transition: transform 0.12s, filter 0.15s;
+        }
+        .rcp-ctrl-btn:not(:disabled):active .rcp-ctrl-icon { transform: scale(0.88); filter: brightness(0.8); }
+        .rcp-ctrl-label {
+          font-family: var(--font-head); font-size: 10px; font-weight: 700;
+          color: var(--dim); letter-spacing: 0.08em; text-transform: uppercase;
+        }
+
+        .ci-start  { background: linear-gradient(135deg, var(--cyan), #06b6d4); color: #080b12; }
+        .ci-stop   { background: rgba(244,114,182,0.15); border: 1px solid rgba(244,114,182,0.28); color: var(--pink); }
+        .ci-next   { background: var(--bg3); border: 1px solid var(--line); color: var(--muted); }
+        .ci-react  { background: var(--bg3); border: 1px solid var(--line); color: var(--muted); }
+        .ci-chat   { background: var(--bg3); border: 1px solid var(--line); color: var(--muted); }
+        .ci-chat.on { background: rgba(167,139,250,0.1); border-color: rgba(167,139,250,0.3); color: var(--violet); }
+
+        .rcp-swipe-guide { display: none; margin-left: auto; }
+        @media (max-width: 768px) {
+          .rcp-swipe-guide {
+            display: flex; flex-direction: column; gap: 3px; align-items: flex-end;
+          }
+          .rcp-swipe-tip {
+            font-family: var(--font-head); font-size: 10px; font-weight: 600;
+            color: var(--dim); letter-spacing: 0.04em;
+          }
+        }
+
+        /* ── MOBILE DRAWER ───────────────────────── */
+        .rcp-drawer {
+          position: absolute; bottom: 0; left: 0; right: 0; z-index: 80;
+          background: rgba(13,16,32,0.98); backdrop-filter: blur(24px);
+          border-top: 1px solid var(--line); border-radius: 20px 20px 0 0;
+          transform: translateY(100%); transition: transform 0.28s cubic-bezier(0.32,0.72,0,1);
+          max-height: 55%; display: flex; flex-direction: column;
+        }
+        .rcp-drawer.open { transform: translateY(0); }
+        .rcp-drawer-handle { width: 36px; height: 4px; background: var(--line); border-radius: 2px; margin: 12px auto 0; flex-shrink: 0; }
+        .rcp-drawer-head {
+          display: flex; align-items: center; justify-content: space-between;
+          padding: 10px 18px; border-bottom: 1px solid var(--line); flex-shrink: 0;
+        }
+        .rcp-drawer-title { font-family: var(--font-head); font-size: 15px; font-weight: 900; color: var(--text); letter-spacing: -0.02em; }
+        .rcp-drawer-close {
+          width: 30px; height: 30px; border-radius: 50%;
+          background: var(--bg3); border: 1px solid var(--line);
+          cursor: pointer; color: var(--muted);
+          display: flex; align-items: center; justify-content: center;
+        }
+        .rcp-drawer-body {
           flex: 1; overflow-y: auto; padding: 12px 16px;
           display: flex; flex-direction: column; gap: 10px;
           overscroll-behavior: contain;
         }
-        .rcp-sidebar-empty {
-          text-align: center; font-size: 13px; color: rgba(255,255,255,0.18);
-          padding: 30px 0; line-height: 1.7;
-        }
-        .rcp-sidebar-form {
-          display: flex; gap: 8px;
-          padding: 12px 16px max(env(safe-area-inset-bottom),14px);
-          border-top: 1px solid rgba(255,255,255,0.05); flex-shrink: 0;
-        }
-        .rcp-sidebar-input {
-          flex: 1; background: rgba(255,255,255,0.06);
-          border: 1px solid rgba(255,255,255,0.09);
-          border-radius: 12px; padding: 11px 14px;
-          font-size: 13px; color: #fff; outline: none; font-family: 'DM Sans', sans-serif;
-        }
-        .rcp-sidebar-input::placeholder { color: rgba(255,255,255,0.22); }
-        .rcp-sidebar-input:focus { border-color: rgba(229,255,0,0.3); }
-        .rcp-sidebar-send {
-          width: 42px; height: 42px; flex-shrink: 0;
-          border-radius: 12px; background: #e5ff00;
-          border: none; cursor: pointer;
-          display: flex; align-items: center; justify-content: center;
-          color: #0a0a0b; align-self: flex-end;
-          transition: transform 0.1s, opacity 0.15s;
-        }
-        .rcp-sidebar-send:disabled { background: #1e1e26; color: #444; }
-        .rcp-sidebar-send:not(:disabled):active { transform: scale(0.9); }
-
-        /* Bubbles */
-        .rcp-bubble {
-          max-width: 82%; padding: 9px 13px;
-          border-radius: 14px; font-size: 13px; line-height: 1.5; color: #fff;
-        }
-        .rcp-bubble.mine   { align-self: flex-end; background: #e5ff00; color: #0a0a0b; border-bottom-right-radius: 4px; }
-        .rcp-bubble.theirs { align-self: flex-start; background: #17171f; border: 1px solid rgba(255,255,255,0.06); border-bottom-left-radius: 4px; }
-        .rcp-bubble-name   { font-size: 10px; opacity: 0.55; margin-bottom: 3px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
-
-        /* BOTTOM CONTROLS */
-        .rcp-controls {
-          flex-shrink: 0; background: #0a0a0b;
-          border-top: 1px solid rgba(255,255,255,0.06);
-          padding: 12px 20px max(env(safe-area-inset-bottom),14px);
-          display: flex; align-items: center; gap: 10px; z-index: 50;
-          position: relative;
-        }
-        .rcp-react-tray {
-          position: absolute; bottom: 100%; left: 0; right: 0;
-          display: flex; justify-content: center; gap: 10px; padding: 10px;
-          background: #0a0a0b; border-top: 1px solid rgba(255,255,255,0.06);
-          animation: rcpUp 0.18s ease;
-        }
-        @keyframes rcpUp { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:translateY(0)} }
-        .rcp-emoji-btn {
-          padding: 8px 16px; border-radius: 100px;
-          background: #17171f; border: 1px solid rgba(255,255,255,0.08);
-          font-size: 20px; cursor: pointer; transition: transform 0.1s;
-        }
-        .rcp-emoji-btn:active { transform: scale(0.85); }
-
-        .rcp-btn-grp { display: flex; align-items: center; gap: 8px; }
-        .rcp-cb {
-          display: flex; flex-direction: column; align-items: center; gap: 5px;
-          background: none; border: none; cursor: pointer; color: #fff; padding: 0; min-width: 52px;
-        }
-        .rcp-cb:disabled { opacity: 0.3; cursor: default; }
-        .rcp-ci {
-          width: 52px; height: 52px; border-radius: 16px;
-          display: flex; align-items: center; justify-content: center;
-          transition: transform 0.12s, filter 0.15s;
-        }
-        .rcp-cb:not(:disabled):active .rcp-ci { transform: scale(0.9); filter: brightness(0.85); }
-        .rcp-cl {
-          font-size: 10px; font-weight: 700; color: rgba(255,255,255,0.35);
-          letter-spacing: 0.8px; text-transform: uppercase; font-family: 'Syne', sans-serif;
-        }
-        .ci-start { background: #e5ff00; color: #0a0a0b; }
-        .ci-stop  { background: #dc2626; }
-        .ci-next  { background: #17171f; border: 1px solid rgba(255,255,255,0.09); }
-        .ci-react { background: #17171f; border: 1px solid rgba(255,255,255,0.09); }
-        .ci-chat  { background: #17171f; border: 1px solid rgba(255,255,255,0.09); }
-        .ci-chat.on { background: rgba(229,255,0,0.1); border-color: rgba(229,255,0,0.3); }
-
-        /* FIX 2: Swipe guide labels updated */
-        .rcp-swipe-guide { display: none; margin-left: auto; }
-        @media (max-width: 768px) {
-          .rcp-swipe-guide { display: flex; flex-direction: column; gap: 3px; align-items: flex-end; }
-          .rcp-swipe-tip { font-size: 10px; color: rgba(255,255,255,0.18); font-weight: 500; }
-        }
-
-        /* MOBILE DRAWER */
-        .rcp-drawer {
-          position: absolute; bottom: 0; left: 0; right: 0; z-index: 80;
-          background: rgba(11,11,15,0.98); backdrop-filter: blur(20px);
-          border-top: 1px solid rgba(255,255,255,0.07);
-          border-radius: 20px 20px 0 0;
-          transform: translateY(100%);
-          transition: transform 0.28s cubic-bezier(0.32,0.72,0,1);
-          max-height: 55%; display: flex; flex-direction: column;
-        }
-        .rcp-drawer.open { transform: translateY(0); }
-        .rcp-drawer-handle { width: 36px; height: 4px; background: rgba(255,255,255,0.12); border-radius: 2px; margin: 12px auto 0; flex-shrink: 0; }
-        .rcp-drawer-head {
-          display: flex; align-items: center; justify-content: space-between;
-          padding: 10px 16px; border-bottom: 1px solid rgba(255,255,255,0.06); flex-shrink: 0;
-        }
-        .rcp-drawer-title { font-size: 14px; font-weight: 700; color: #fff; font-family: 'Syne', sans-serif; }
-        .rcp-drawer-close {
-          width: 30px; height: 30px; border-radius: 50%;
-          background: rgba(255,255,255,0.07); border: none;
-          cursor: pointer; color: rgba(255,255,255,0.6);
-          display: flex; align-items: center; justify-content: center;
-        }
-        .rcp-drawer-body {
-          flex: 1; overflow-y: auto; padding: 10px 14px;
-          display: flex; flex-direction: column; gap: 10px;
-          overscroll-behavior: contain;
-        }
-        .rcp-drawer-empty { text-align: center; font-size: 13px; color: rgba(255,255,255,0.2); padding: 20px 0; }
+        .rcp-drawer-empty { text-align: center; font-size: 13px; color: var(--dim); padding: 20px 0; }
         .rcp-drawer-form {
           display: flex; gap: 8px;
-          padding: 10px 14px max(env(safe-area-inset-bottom),14px);
-          border-top: 1px solid rgba(255,255,255,0.06); flex-shrink: 0;
+          padding: 10px 16px max(env(safe-area-inset-bottom),14px);
+          border-top: 1px solid var(--line); flex-shrink: 0;
         }
         .rcp-drawer-input {
-          flex: 1; background: rgba(255,255,255,0.07);
-          border: 1px solid rgba(255,255,255,0.1); border-radius: 12px;
-          padding: 10px 14px; font-size: 13px; color: #fff; outline: none;
-          font-family: 'DM Sans', sans-serif;
+          flex: 1; background: var(--bg3); border: 1px solid var(--line);
+          border-radius: 12px; padding: 11px 14px;
+          font-family: var(--font-body); font-size: 13px; color: var(--text); outline: none;
+          transition: border-color 0.15s;
         }
-        .rcp-drawer-input::placeholder { color: rgba(255,255,255,0.25); }
-        .rcp-drawer-input:focus { border-color: rgba(229,255,0,0.3); }
+        .rcp-drawer-input::placeholder { color: var(--dim); }
+        .rcp-drawer-input:focus { border-color: rgba(167,139,250,0.4); }
         .rcp-drawer-send {
-          width: 40px; height: 40px; border-radius: 12px; background: #e5ff00;
-          border: none; cursor: pointer; display: flex; align-items: center; justify-content: center;
-          color: #0a0a0b; flex-shrink: 0; align-self: flex-end; transition: transform 0.1s;
+          width: 42px; height: 42px; border-radius: 12px;
+          background: linear-gradient(135deg, var(--cyan), var(--violet));
+          border: none; cursor: pointer;
+          display: flex; align-items: center; justify-content: center;
+          color: #080b12; flex-shrink: 0; align-self: flex-end;
+          transition: transform 0.1s, opacity 0.15s;
         }
-        .rcp-drawer-send:disabled { background: #1a1a22; color: #444; }
+        .rcp-drawer-send:disabled { background: var(--bg3); color: var(--dim); }
         .rcp-drawer-send:active { transform: scale(0.9); }
 
-        /* TOAST */
+        /* ── TOAST ───────────────────────────────── */
         .rcp-toast {
-          position: absolute; top: 62px; left: 50%; transform: translateX(-50%);
-          z-index: 100; background: rgba(10,10,12,0.92); backdrop-filter: blur(16px);
-          border: 1px solid rgba(255,255,255,0.1); border-radius: 100px; padding: 8px 18px;
-          font-size: 12px; font-weight: 500; color: rgba(255,255,255,0.9); white-space: nowrap;
-          pointer-events: none; animation: rcpToast 0.2s ease;
+          position: absolute; top: 66px; left: 50%; transform: translateX(-50%);
+          z-index: 100; background: rgba(13,16,32,0.95); backdrop-filter: blur(16px);
+          border: 1px solid var(--line); border-radius: 100px;
+          padding: 8px 20px; font-family: var(--font-head); font-size: 12px; font-weight: 700;
+          color: var(--text); white-space: nowrap; pointer-events: none;
+          animation: rcp-up 0.2s ease;
         }
-        @keyframes rcpToast { from{opacity:0;transform:translateX(-50%) translateY(6px)} to{opacity:1;transform:translateX(-50%) translateY(0)} }
 
-        /* SHEETS */
+        /* ── SHEETS ──────────────────────────────── */
         .rcp-backdrop {
           position: absolute; inset: 0; z-index: 90;
-          background: rgba(0,0,0,0.65); display: flex; align-items: flex-end;
-          animation: rcpFade 0.15s ease;
+          background: rgba(0,0,0,0.7); display: flex; align-items: flex-end;
+          animation: rcp-fade 0.15s ease;
         }
-        @keyframes rcpFade { from{opacity:0} to{opacity:1} }
+        @keyframes rcp-fade { from{opacity:0} to{opacity:1} }
         .rcp-sheet {
-          background: #12121a; border-radius: 20px 20px 0 0;
-          border-top: 1px solid rgba(255,255,255,0.08);
-          padding: 0 20px max(env(safe-area-inset-bottom),28px); width: 100%;
-          animation: rcpUp 0.22s cubic-bezier(0.32,0.72,0,1);
+          background: var(--bg2); border-radius: 24px 24px 0 0;
+          border-top: 1px solid var(--line);
+          padding: 0 22px max(env(safe-area-inset-bottom),32px);
+          width: 100%; animation: rcp-up 0.22s cubic-bezier(0.32,0.72,0,1);
         }
-        .rcp-sheet-handle { width: 36px; height: 4px; background: rgba(255,255,255,0.12); border-radius: 2px; margin: 12px auto 18px; }
-        .rcp-sheet-eyebrow { font-size: 11px; font-weight: 700; color: rgba(255,255,255,0.3); letter-spacing: 1.2px; text-transform: uppercase; margin-bottom: 4px; font-family: 'Syne', sans-serif; }
-        .rcp-sheet-name { font-size: 20px; font-weight: 800; color: #fff; margin-bottom: 18px; font-family: 'Syne', sans-serif; }
-        .rcp-sheet-body-txt { font-size: 13px; color: rgba(255,255,255,0.4); margin-bottom: 18px; line-height: 1.6; }
+        .rcp-sheet-handle { width: 36px; height: 4px; background: var(--line); border-radius: 2px; margin: 14px auto 20px; }
+        .rcp-sheet-xrow { display: flex; justify-content: flex-end; margin-bottom: 6px; }
+        .rcp-sheet-x {
+          background: var(--bg3); border: 1px solid var(--line); border-radius: 50%;
+          width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;
+          color: var(--muted); cursor: pointer; transition: color 0.15s;
+        }
+        .rcp-sheet-x:hover { color: var(--text); }
+        .rcp-sheet-eyebrow {
+          font-family: var(--font-head); font-size: 10px; font-weight: 700;
+          letter-spacing: 0.18em; text-transform: uppercase; color: var(--pink);
+          display: flex; align-items: center; gap: 8px; margin-bottom: 6px;
+        }
+        .rcp-sheet-eyebrow::before { content: ''; width: 14px; height: 1px; background: var(--pink); opacity: 0.5; }
+        .rcp-sheet-name {
+          font-family: var(--font-head); font-size: 22px; font-weight: 900;
+          color: var(--text); letter-spacing: -0.03em; margin-bottom: 20px;
+        }
+        .rcp-sheet-txt { font-size: 13px; color: var(--muted); line-height: 1.65; margin-bottom: 18px; }
         .rcp-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
         .rcp-chip {
-          padding: 8px 16px; border-radius: 100px; font-size: 12px; font-weight: 600;
-          background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08);
-          color: rgba(255,255,255,0.5); cursor: pointer; transition: all 0.15s;
+          padding: 8px 16px; border-radius: 100px; font-family: var(--font-head);
+          font-size: 12px; font-weight: 700; cursor: pointer; transition: all 0.15s;
+          background: var(--bg3); border: 1px solid var(--line); color: var(--dim);
         }
-        .rcp-chip.on { background: rgba(229,255,0,0.12); border-color: rgba(229,255,0,0.35); color: #e5ff00; }
+        .rcp-chip.on { background: rgba(244,114,182,0.1); border-color: rgba(244,114,182,0.35); color: var(--pink); }
         .rcp-sheet-ta {
-          width: 100%; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
-          border-radius: 14px; padding: 12px 14px; font-size: 13px; color: #fff;
-          min-height: 76px; resize: none; outline: none; font-family: 'DM Sans', sans-serif;
-          margin-bottom: 16px; line-height: 1.5; box-sizing: border-box;
+          width: 100%; background: var(--bg3); border: 1px solid var(--line);
+          border-radius: 14px; padding: 12px 15px; font-family: var(--font-body);
+          font-size: 13px; color: var(--text); min-height: 80px; resize: none; outline: none;
+          margin-bottom: 16px; line-height: 1.55; transition: border-color 0.15s;
         }
-        .rcp-sheet-ta::placeholder { color: rgba(255,255,255,0.2); }
-        .rcp-sheet-ta:focus { border-color: rgba(229,255,0,0.3); }
+        .rcp-sheet-ta::placeholder { color: var(--dim); }
+        .rcp-sheet-ta:focus { border-color: rgba(167,139,250,0.4); }
         .rcp-sheet-btn {
           width: 100%; padding: 15px; border-radius: 14px; border: none;
-          font-size: 15px; font-weight: 700; cursor: pointer; font-family: 'Syne', sans-serif;
-          transition: opacity 0.15s, transform 0.1s; letter-spacing: 0.2px;
+          font-family: var(--font-head); font-size: 15px; font-weight: 900;
+          cursor: pointer; transition: opacity 0.15s, transform 0.1s; letter-spacing: -0.01em;
         }
-        .rcp-sheet-btn:disabled { opacity: 0.5; }
+        .rcp-sheet-btn:disabled { opacity: 0.45; cursor: not-allowed; }
         .rcp-sheet-btn:active { transform: scale(0.98); }
-        .rcp-sheet-btn.primary { background: #e5ff00; color: #0a0a0b; }
-        .rcp-sheet-btn.danger  { background: #dc2626; color: #fff; }
-        .rcp-sheet-xrow { display: flex; justify-content: flex-end; margin-bottom: 4px; }
-        .rcp-sheet-x {
-          background: rgba(255,255,255,0.07); border: none; border-radius: 50%;
-          width: 32px; height: 32px;
-          display: flex; align-items: center; justify-content: center;
-          color: rgba(255,255,255,0.5); cursor: pointer;
-        }
+        .rcp-sheet-btn.report { background: linear-gradient(135deg, var(--violet), var(--cyan)); color: #080b12; }
+        .rcp-sheet-btn.block  { background: linear-gradient(135deg, var(--pink), #ef4444); color: #fff; }
       `}</style>
 
       <div className="rcp-root">
@@ -896,23 +833,25 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
         {/* TOP BAR */}
         <header className="rcp-topbar">
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <button className="rcp-back-btn" onClick={() => navigate(-1)} title="Go back">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+            <button className="rcp-back-btn" onClick={() => navigate(-1)}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M19 12H5M12 5l-7 7 7 7"/>
               </svg>
             </button>
-            <div className="rcp-wordmark" onClick={() => navigate("/app")}>
-              CampusTV <span className="rcp-badge"></span>
+            <div className="rcp-logo" onClick={() => navigate("/app")}>
+              <div className="rcp-logo-icon">TV</div>
+              <span className="rcp-logo-text">CampusTV</span>
+              <span className="rcp-logo-badge">Live</span>
             </div>
           </div>
           <div className="rcp-topbar-right">
-            <div className="rcp-status-chip">
+            <div className="rcp-status-pill">
               <span className={`rcp-dot ${isInCall ? "live" : (isMatching || zegoConnecting) ? "searching" : ""}`} />
               {isInCall ? "Connected" : (isMatching || zegoConnecting) ? "Searching…" : "Ready"}
             </div>
             {isInCall && (
               <button className="rcp-flag-btn" onClick={() => setShowReportSheet(true)}>
-                <Flag size={15} />
+                <Flag size={14} />
               </button>
             )}
           </div>
@@ -933,16 +872,13 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
             onTouchMove={handleTouchMove}
             onTouchEnd={handleTouchEnd}
             style={Math.abs(swipeDelta) > 20
-              ? { transform: `translateX(${swipeDelta * 0.12}px)`, transition: "none" }
+              ? { transform: `translateX(${swipeDelta * 0.1}px)`, transition: "none" }
               : { transform: "translateX(0)", transition: "transform 0.3s ease" }
             }
           >
-            {/* Zego VideoRoom — fills entire column */}
+            {/* Zego */}
             {zegoRenderMatch && (
-              <div
-                className="rcp-zego-fill"
-                style={{ opacity: zegoConnecting ? 0 : 1, transition: "opacity 0.4s ease", zIndex: 1 }}
-              >
+              <div className="rcp-zego-fill" style={{ opacity: zegoConnecting ? 0 : 1, transition: "opacity 0.4s ease", zIndex: 1 }}>
                 <VideoRoom
                   key={zegoRenderMatch.roomId}
                   appId={zegoConfig.appId}
@@ -953,8 +889,7 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
                   onJoined={() => {
                     window.setTimeout(() => {
                       if (zegoTimeoutRef.current !== null) { window.clearTimeout(zegoTimeoutRef.current); zegoTimeoutRef.current = null; }
-                      setZegoConnecting(false); setRoomRevealPending(false);
-                      setCallStartedAt(Date.now()); setConnectionIssue("");
+                      setZegoConnecting(false); setCallStartedAt(Date.now()); setConnectionIssue("");
                     }, 1100);
                   }}
                 />
@@ -964,61 +899,57 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
             {/* Connecting overlay */}
             {zegoConnecting && (
               <div className="rcp-connecting">
-                <div className="rcp-spin" />
-                <p style={{ fontSize: 13, color: "rgba(255,255,255,0.4)", fontWeight: 500 }}>
-                  {match ? `${upcomingPartnerName} is connecting…` : "Connecting…"}
+                <div className="rcp-spin-ring" />
+                <p className="rcp-connecting-name">
+                  {match ? `Connecting to ${upcomingPartnerName}…` : "Connecting…"}
                 </p>
               </div>
             )}
 
-            {/* FIX 3: Idle screen — full-area video preview matching connected-state layout */}
+            {/* Idle */}
             {!zegoRenderMatch && !zegoConnecting && (
               <div className="rcp-idle">
                 {isMatching ? (
-                  <div className="rcp-spin-wrap">
-                    <div className="rcp-spin" />
-                    <p className="rcp-idle-txt">Looking for someone…</p>
+                  <div className="rcp-searching-wrap">
+                    <div className="rcp-spin-ring" />
+                    <p style={{ fontFamily: "var(--font-head)", fontSize: 14, fontWeight: 700, color: "var(--muted)", letterSpacing: "-0.01em" }}>
+                      Finding someone…
+                    </p>
                   </div>
                 ) : (
                   <>
-                    {/* Full-area camera preview */}
                     <div className="rcp-idle-video-wrap">
                       <video ref={localVideoRef} autoPlay muted playsInline />
                     </div>
-
-                    {/* Centered overlay: icon + text */}
                     <div className="rcp-idle-overlay">
-                      <div className="rcp-idle-icon">
-                        <svg width="24" height="24" fill="none" stroke="rgba(255,255,255,0.5)" strokeWidth="1.5" viewBox="0 0 24 24">
+                      <div className="rcp-idle-orb">
+                        <svg width="26" height="26" fill="none" stroke="rgba(241,245,249,0.5)" strokeWidth="1.5" viewBox="0 0 24 24">
                           <circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/>
                         </svg>
                       </div>
-                      <p className="rcp-idle-txt">{connectionIssue ? "Connection lost" : "Tap Start to begin"}</p>
-                      {!connectionIssue && <p className="rcp-idle-sub">Meet Campus students via video</p>}
+                      <p className="rcp-idle-title">{connectionIssue ? "Connection lost" : "Tap Start below"}</p>
+                      {!connectionIssue && <p className="rcp-idle-sub">Meet campus students via video</p>}
                     </div>
-
-                    {/* "You" label — bottom-left, same as connected state */}
                     <span className="rcp-you-tag">You</span>
                   </>
                 )}
               </div>
             )}
 
-            {/* In-call badges */}
+            {/* Call badges */}
             {isInCall && (
               <div className="rcp-call-badges">
-                <div className="rcp-live-pill"><span className="rcp-live-blink" />Live</div>
+                <div className="rcp-live-pill"><span className="rcp-live-blink" /> Live</div>
                 <div className="rcp-name-chip">{match!.partner.fullName.split(" ")[0]}</div>
                 <div className="rcp-timer-chip">{liveTimer}</div>
               </div>
             )}
 
-            {/* In-call actions */}
+            {/* Call actions */}
             {isInCall && (
               <div className="rcp-call-actions">
                 <button
-                  className="rcp-act-btn friend"
-                  title={getFriendLabel()}
+                  className="rcp-act-btn friend" title={getFriendLabel()}
                   onClick={() => void handleFriendAction()}
                   disabled={Boolean(actionBusy) || relationship?.isBlocked || relationship?.isBlockedByOther || relationship?.isFriend || relationship?.outgoingRequestPending}
                 >
@@ -1037,7 +968,7 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
               ))}
             </div>
 
-            {/* FIX 2: Swipe hints — left = next, right = stop */}
+            {/* Swipe hints */}
             <div className={`rcp-swipe-hint ${swipeDir === "left" && Math.abs(swipeDelta) > 40 ? "on" : ""}`}>
               <div className="rcp-swipe-lbl next">← Next</div>
             </div>
@@ -1046,16 +977,18 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
             </div>
           </div>
 
-          {/* DESKTOP CHAT SIDEBAR */}
+          {/* DESKTOP SIDEBAR */}
           <div className="rcp-sidebar">
             <div className="rcp-sidebar-head">
+              <p className="rcp-sidebar-eyebrow">Messages</p>
               <p className="rcp-sidebar-title">Live Chat</p>
             </div>
             <div className="rcp-sidebar-msgs" ref={liveChatBodyRef}>
               {liveMessages.length === 0 && (
-                <p className="rcp-sidebar-empty">
-                  {isInCall ? "Say something!\nMessages appear here." : "Chat messages will\nappear here during a call."}
-                </p>
+                <div className="rcp-sidebar-empty">
+                  <MessageCircle size={28} />
+                  <p>{isInCall ? "Say something to start chatting!" : "Chat messages appear here during a call."}</p>
+                </div>
               )}
               {liveMessages.map((entry) => (
                 <div key={entry.id} className={`rcp-bubble ${entry.senderId === user.id ? "mine" : "theirs"}`}>
@@ -1065,13 +998,10 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
               ))}
             </div>
             <form className="rcp-sidebar-form" onSubmit={sendLiveChatMessage}>
-              <input
-                className="rcp-sidebar-input"
-                value={liveChatInput}
+              <input className="rcp-sidebar-input" value={liveChatInput}
                 onChange={(e) => setLiveChatInput(e.target.value)}
-                placeholder={isInCall ? "Type your message…" : "Start a call to chat"}
-                disabled={!isInCall}
-              />
+                placeholder={isInCall ? "Type a message…" : "Start a call to chat"}
+                disabled={!isInCall} />
               <button className="rcp-sidebar-send" type="submit" disabled={!liveChatInput.trim() || !isInCall}>
                 <Send size={16} />
               </button>
@@ -1084,42 +1014,41 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
           {showReactionTray && isInCall && (
             <div className="rcp-react-tray">
               {QUICK_REACTIONS.map((emoji) => (
-                <button key={emoji} className="rcp-emoji-btn" onClick={() => triggerReaction(emoji)}>{emoji}</button>
+                <button key={emoji} className="rcp-emoji-pick" onClick={() => triggerReaction(emoji)}>{emoji}</button>
               ))}
             </div>
           )}
 
-          <div className="rcp-btn-grp">
+          <div className="rcp-ctrl-grp">
             {!hasStarted ? (
-              <button className="rcp-cb" onClick={startMatching} disabled={isMatching}>
-                <div className="rcp-ci ci-start"><Play size={22} fill="#0a0a0b" color="#0a0a0b" /></div>
-                <span className="rcp-cl">Start</span>
+              <button className="rcp-ctrl-btn" onClick={startMatching} disabled={isMatching}>
+                <div className="rcp-ctrl-icon ci-start"><Play size={22} fill="#080b12" color="#080b12" /></div>
+                <span className="rcp-ctrl-label">Start</span>
               </button>
             ) : (
               <>
-                <button className="rcp-cb" onClick={stopMatching}>
-                  <div className="rcp-ci ci-stop"><PhoneOff size={20} color="#fff" /></div>
-                  <span className="rcp-cl">Stop</span>
+                <button className="rcp-ctrl-btn" onClick={stopMatching}>
+                  <div className="rcp-ctrl-icon ci-stop"><PhoneOff size={20} /></div>
+                  <span className="rcp-ctrl-label">Stop</span>
                 </button>
-                <button className="rcp-cb" onClick={() => setShowReactionTray((p) => !p)} disabled={!isInCall}>
-                  <div className="rcp-ci ci-react"><SmilePlus size={20} color="rgba(255,255,255,0.75)" /></div>
-                  <span className="rcp-cl">React</span>
+                <button className="rcp-ctrl-btn" onClick={() => { setShowReactionTray((p) => !p); }} disabled={!isInCall}>
+                  <div className="rcp-ctrl-icon ci-react"><SmilePlus size={20} /></div>
+                  <span className="rcp-ctrl-label">React</span>
                 </button>
-                <button className="rcp-cb" onClick={() => setShowLiveChat((p) => !p)} disabled={!isInCall}>
-                  <div className={`rcp-ci ci-chat ${showLiveChat ? "on" : ""}`}>
-                    <MessageCircle size={20} color={showLiveChat ? "#e5ff00" : "rgba(255,255,255,0.75)"} />
+                <button className="rcp-ctrl-btn" onClick={() => setShowLiveChat((p) => !p)} disabled={!isInCall}>
+                  <div className={`rcp-ctrl-icon ci-chat ${showLiveChat ? "on" : ""}`}>
+                    <MessageCircle size={20} />
                   </div>
-                  <span className="rcp-cl">Chat</span>
+                  <span className="rcp-ctrl-label">Chat</span>
                 </button>
-                <button className="rcp-cb" onClick={nextMatch} disabled={!isInCall && !isMatching}>
-                  <div className="rcp-ci ci-next"><SkipForward size={20} color="rgba(255,255,255,0.75)" /></div>
-                  <span className="rcp-cl">Next</span>
+                <button className="rcp-ctrl-btn" onClick={nextMatch} disabled={!isInCall && !isMatching}>
+                  <div className="rcp-ctrl-icon ci-next"><SkipForward size={20} /></div>
+                  <span className="rcp-ctrl-label">Next</span>
                 </button>
               </>
             )}
           </div>
 
-          {/* FIX 2: Swipe guide labels — reversed */}
           {hasStarted && (
             <div className="rcp-swipe-guide">
               <span className="rcp-swipe-tip">→ Swipe right to stop</span>
@@ -1145,7 +1074,8 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
             ))}
           </div>
           <form className="rcp-drawer-form" onSubmit={sendLiveChatMessage}>
-            <input className="rcp-drawer-input" value={liveChatInput} onChange={(e) => setLiveChatInput(e.target.value)} placeholder="Type a message…" />
+            <input className="rcp-drawer-input" value={liveChatInput}
+              onChange={(e) => setLiveChatInput(e.target.value)} placeholder="Type a message…" />
             <button className="rcp-drawer-send" type="submit" disabled={!liveChatInput.trim()}><Send size={15} /></button>
           </form>
         </div>
@@ -1156,7 +1086,7 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
             <div className="rcp-sheet" onClick={(e) => e.stopPropagation()}>
               <div className="rcp-sheet-handle" />
               <div className="rcp-sheet-xrow"><button className="rcp-sheet-x" onClick={() => setShowReportSheet(false)}><X size={14} /></button></div>
-              <p className="rcp-sheet-eyebrow">Report</p>
+              <p className="rcp-sheet-eyebrow">Report User</p>
               <p className="rcp-sheet-name">{match.partner.fullName}</p>
               <div className="rcp-chips">
                 {["Spam", "Harassment", "Inappropriate", "Fake profile"].map((r) => (
@@ -1164,7 +1094,9 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
                 ))}
               </div>
               <textarea className="rcp-sheet-ta" placeholder="Add context (optional)…" value={reportDetails} onChange={(e) => setReportDetails(e.target.value)} />
-              <button className="rcp-sheet-btn primary" onClick={() => void submitReport()} disabled={actionBusy === "report"}>Submit Report</button>
+              <button className="rcp-sheet-btn report" onClick={() => void submitReport()} disabled={actionBusy === "report"}>
+                Submit Report
+              </button>
             </div>
           </div>
         )}
@@ -1177,12 +1109,15 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
               <div className="rcp-sheet-xrow"><button className="rcp-sheet-x" onClick={() => setShowBlockSheet(false)}><X size={14} /></button></div>
               <p className="rcp-sheet-eyebrow">Block User</p>
               <p className="rcp-sheet-name">Block {match.partner.fullName.split(" ")[0]}?</p>
-              <p className="rcp-sheet-body-txt">They'll be removed and skipped in all future random matches.</p>
+              <p className="rcp-sheet-txt">They'll be removed and skipped in all future random matches.</p>
               <textarea className="rcp-sheet-ta" placeholder="Optional note for yourself" value={blockReason} onChange={(e) => setBlockReason(e.target.value)} />
-              <button className="rcp-sheet-btn danger" onClick={() => void confirmBlock()} disabled={actionBusy === "block"}>Block and Continue</button>
+              <button className="rcp-sheet-btn block" onClick={() => void confirmBlock()} disabled={actionBusy === "block"}>
+                Block and Continue
+              </button>
             </div>
           </div>
         )}
+
       </div>
     </>
   );
