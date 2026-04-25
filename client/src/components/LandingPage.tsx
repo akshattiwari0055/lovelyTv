@@ -528,22 +528,45 @@ export function LandingPage({ isLoggedIn, onLogout }: LandingPageProps) {
         /* ── RESPONSIVE ────────────────────────────── */
         @media (max-width: 640px) {
           :root { --header-h: 56px; }
+
+          /* Hero: auto height on mobile — no forced full-screen gap */
           .lp-hero {
-            min-height: calc(100dvh - var(--header-h));
-            padding: 16px 12px 32px;
-            justify-content: center;
+            min-height: unset;
+            height: auto;
+            padding: 20px 14px 28px;
+            justify-content: flex-start;
           }
-          .lp-h1 { font-size: clamp(72px, 22vw, 120px); }
-          .lp-h1-line2 { font-size: clamp(68px, 21vw, 114px); margin-bottom: 16px; }
-          .lp-hero-subtitle { margin-bottom: 16px; font-size: 13px; }
-          .lp-trust-row { margin-bottom: 16px; }
-          .lp-hero-btns { margin-bottom: 24px; gap: 10px; }
-          .lp-btn-primary, .lp-btn-secondary { padding: 12px 18px; font-size: 14px; }
-          .lp-stat-cell { padding: 12px 8px; }
+          .lp-hero::after { height: 60px; }
+
           .lp-live-pill { margin-bottom: 12px; font-size: 10px; padding: 5px 12px 5px 10px; }
+          .lp-h1 { font-size: clamp(68px, 21.5vw, 110px); margin-bottom: 0; }
+          .lp-h1-line2 { font-size: clamp(64px, 20.5vw, 105px); margin-bottom: 14px; }
+          .lp-hero-subtitle { font-size: 13px; margin-bottom: 14px; }
+          .lp-trust-row { margin-bottom: 14px; gap: 6px; }
+          .lp-trust-tag { font-size: 9px; padding: 4px 9px; }
+          .lp-hero-btns { margin-bottom: 20px; gap: 8px; flex-direction: column; align-items: stretch; }
+          .lp-btn-primary, .lp-btn-secondary { padding: 13px 20px; font-size: 14px; justify-content: center; width: 100%; }
+          .lp-stat-cell { padding: 12px 8px; }
+          .lp-stat-val { font-size: clamp(20px, 5vw, 28px); }
+
+          /* Sections — tighter on mobile */
+          .lp-features { padding: 44px 0 36px; }
+          .lp-feat-header { margin-bottom: 24px; }
+          .lp-big-stats { padding: 0; }
+          .lp-big-stat { padding: 18px 14px; }
+          .lp-big-stat-val { font-size: clamp(34px, 10vw, 52px); }
+          .lp-about { padding: 44px 0; }
+          .lp-cta { padding: 44px 0; }
+          .lp-cta-card { padding: 36px 18px; border-radius: 18px; }
+          .lp-section-wrap { padding: 0 14px; }
         }
+
         @media (min-width: 641px) and (max-width: 1024px) {
           .lp-hero { padding: 24px 20px 40px; }
+          .lp-features { padding: 64px 0 56px; }
+          .lp-big-stats { padding: 48px 0; }
+          .lp-about { padding: 64px 0; }
+          .lp-cta { padding: 64px 0; }
         }
       `}</style>
 
