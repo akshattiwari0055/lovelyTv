@@ -195,7 +195,6 @@ export function AuthScreen({ onAuthenticated, isLoggedIn }: AuthScreenProps) {
           font-family: var(--font-body);
           min-height: 100dvh;
           -webkit-font-smoothing: antialiased;
-          padding-top: var(--header-h);
           position: relative;
           overflow: hidden;
         }
