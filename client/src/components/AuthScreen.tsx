@@ -199,6 +199,11 @@ export function AuthScreen({ onAuthenticated, isLoggedIn }: AuthScreenProps) {
           position: relative;
           overflow: hidden;
         }
+          @media (max-width: 860px) {
+  .as-shell {
+    padding-top: 0;
+  }
+}
 
         /* Ambient background blobs */
         .as-shell::before {
