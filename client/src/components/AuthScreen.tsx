@@ -468,7 +468,7 @@ export function AuthScreen({ onAuthenticated, isLoggedIn }: AuthScreenProps) {
           font-family: var(--font-body); font-size: 14px; color: var(--text);
           height: 100%; padding: 0; min-width: 0;
         }
-        .as-input-wrap input::placeholder { color: rgba(241,245,249,0.2); }
+        .as-input-wrap input::placeholder { color: rgba(241,245,249,0.7); }
 
         .as-status-ok  { color: #4ade80; flex-shrink: 0; }
         .as-status-err { color: #f87171; flex-shrink: 0; }

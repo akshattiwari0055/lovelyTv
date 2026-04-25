@@ -29,7 +29,7 @@ export function Footer() {
         <div className="footer-social">
           <p className="footer-title">Connect</p>
           <div className="social-icons">
-            <a href="https://instagram.com" target="_blank" rel="noreferrer">
+            <a href="https://instagram.com/" target="_blank" rel="noreferrer">
               <Globe size={18} />
               Instagram
               <ArrowUpRight size={14} />
