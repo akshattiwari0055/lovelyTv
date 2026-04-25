@@ -170,6 +170,7 @@ export function LandingPage({ isLoggedIn, onLogout }: LandingPageProps) {
           min-height: 100dvh;
           -webkit-font-smoothing: antialiased;
           font-size: 16px;
+          padding-top: var(--header-h);
         }
 
         /* ── GRAIN ─────────────────────────────────── */
@@ -182,10 +183,10 @@ export function LandingPage({ isLoggedIn, onLogout }: LandingPageProps) {
 
         /* ── HERO ──────────────────────────────────── */
         .lp-hero {
-          min-height: 100dvh;
+          min-height: calc(100dvh - var(--header-h));
           display: flex; flex-direction: column;
-          align-items: center; justify-content: flex-start;
-          padding: calc(var(--header-h) + 24px) 16px 48px;
+          align-items: center; justify-content: center;
+          padding: 32px 16px 48px;
           text-align: center;
           position: relative; overflow: hidden;
         }
@@ -527,7 +528,7 @@ export function LandingPage({ isLoggedIn, onLogout }: LandingPageProps) {
 
         /* ── RESPONSIVE ────────────────────────────── */
         @media (max-width: 640px) {
-          .lp-hero { padding: calc(var(--header-h) + 16px) 12px 40px; }
+          .lp-hero { padding: 20px 12px 36px; min-height: calc(100dvh - var(--header-h)); }
           .lp-h1 { font-size: clamp(72px, 22vw, 120px); }
           .lp-h1-line2 { font-size: clamp(68px, 21vw, 114px); margin-bottom: 20px; }
           .lp-btn-primary, .lp-btn-secondary { padding: 13px 20px; font-size: 14px; }
@@ -535,7 +536,7 @@ export function LandingPage({ isLoggedIn, onLogout }: LandingPageProps) {
           .lp-live-pill { margin-bottom: 14px; }
         }
         @media (min-width: 641px) and (max-width: 1024px) {
-          .lp-hero { padding: calc(var(--header-h) + 20px) 20px 56px; }
+          .lp-hero { padding: 28px 20px 48px; }
         }
       `}</style>
 
