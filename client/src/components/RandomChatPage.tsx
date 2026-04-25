@@ -163,6 +163,30 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
         display: none !important; visibility: hidden !important; pointer-events: none !important;
         height: 0 !important; overflow: hidden !important; opacity: 0 !important;
       }
+      /* MOBILE: Force Zego video grid to stack TOP/BOTTOM not side-by-side */
+      @media (max-width: 768px) {
+        .rcp-zego-fill > div > div {
+          flex-direction: column !important;
+          flex-wrap: nowrap !important;
+          display: flex !important;
+        }
+        .rcp-zego-fill > div > div > div {
+          width: 100% !important;
+          height: 50% !important;
+          max-width: 100% !important;
+          flex: 1 1 50% !important;
+          min-height: 0 !important;
+        }
+        .rcp-zego-fill > div > div > div > div {
+          width: 100% !important;
+          height: 100% !important;
+        }
+        .rcp-zego-fill video {
+          width: 100% !important;
+          height: 100% !important;
+          object-fit: cover !important;
+        }
+      }
     `;
     if (!document.getElementById("zego-kill-ui")) document.head.appendChild(style);
     const OUR_CLASSES = ["rcp-zego-fill","rcp-connecting","rcp-idle","rcp-call-badges","rcp-call-actions","rcp-floats","rcp-swipe-hint","rcp-controls","rcp-topbar","rcp-sheet","rcp-drawer","rcp-toast","rcp-backdrop"];
@@ -207,6 +231,30 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
         const txt = el.textContent || "";
         if (txt.includes("Media play failed") || txt.includes("Resume")) el.remove();
       });
+      // MOBILE: Force Zego grid to vertical stack
+      if (window.innerWidth <= 768) {
+        const zegoFill = vcol.querySelector<HTMLElement>(".rcp-zego-fill");
+        if (zegoFill) {
+          // Find the grid container (usually 1-2 levels deep)
+          const grids = zegoFill.querySelectorAll<HTMLElement>("div");
+          grids.forEach((div) => {
+            const children = Array.from(div.children);
+            // If this div has 2 child divs that each contain a video — it's the grid
+            if (children.length === 2 && children.every(c => c.tagName === "DIV")) {
+              div.style.setProperty("flex-direction", "column", "important");
+              div.style.setProperty("display", "flex", "important");
+              div.style.setProperty("width", "100%", "important");
+              div.style.setProperty("height", "100%", "important");
+              children.forEach((child) => {
+                (child as HTMLElement).style.setProperty("width", "100%", "important");
+                (child as HTMLElement).style.setProperty("height", "50%", "important");
+                (child as HTMLElement).style.setProperty("flex", "1 1 50%", "important");
+                (child as HTMLElement).style.setProperty("max-width", "100%", "important");
+              });
+            }
+          });
+        }
+      }
     };
     killZegoBar();
     const observer = new MutationObserver(killZegoBar);
@@ -834,6 +882,31 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
           visibility: visible !important;
           pointer-events: auto !important;
           width: 40px !important; height: 40px !important; opacity: 1 !important;
+        }
+
+        /* ── FORCE ZEGO VERTICAL STACK ON MOBILE ── */
+        @media (max-width: 768px) {
+          /* Make Zego's grid container vertical */
+          .rcp-zego-fill > div > div,
+          .rcp-zego-fill > div > div > div {
+            flex-direction: column !important;
+            display: flex !important;
+            width: 100% !important;
+            height: 100% !important;
+          }
+          /* Each video tile takes half the height, full width */
+          .rcp-zego-fill video {
+            width: 100% !important;
+            height: 50% !important;
+            object-fit: cover !important;
+            flex: 1 !important;
+          }
+          /* Each video wrapper takes half */
+          .rcp-zego-fill > div > div > div > div {
+            width: 100% !important;
+            height: 50% !important;
+            flex: 1 !important;
+          }
         }
         .rcp-drawer-handle { width: 36px; height: 4px; background: var(--line); border-radius: 2px; margin: 12px auto 0; flex-shrink: 0; }
         .rcp-drawer-head {
