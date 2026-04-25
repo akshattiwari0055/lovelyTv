@@ -164,26 +164,43 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
         height: 0 !important; overflow: hidden !important; opacity: 0 !important;
       }
       @media (max-width: 768px) {
+        .rcp-zego-fill,
+        .rcp-zego-fill > div,
         .rcp-zego-fill > div > div {
-          flex-direction: column !important;
-          flex-wrap: nowrap !important;
           display: flex !important;
-        }
-        .rcp-zego-fill > div > div > div {
-          width: 100% !important;
-          height: 50% !important;
-          max-width: 100% !important;
-          flex: 1 1 50% !important;
-          min-height: 0 !important;
-        }
-        .rcp-zego-fill > div > div > div > div {
+          flex-direction: column !important;
           width: 100% !important;
           height: 100% !important;
+          min-height: 0 !important;
+          overflow: hidden !important;
+        }
+        .rcp-zego-fill > div > div > div {
+          display: flex !important;
+          flex-direction: column !important;
+          width: 100% !important;
+          height: 50% !important;
+          min-height: 0 !important;
+          flex: 1 1 50% !important;
+          max-width: 100% !important;
+          overflow: hidden !important;
+        }
+        .rcp-zego-fill > div > div > div > div,
+        .rcp-zego-fill > div > div > div > div > div {
+          width: 100% !important;
+          height: 100% !important;
+          min-height: 0 !important;
+          flex: 1 !important;
+          display: flex !important;
+          flex-direction: column !important;
+          overflow: hidden !important;
         }
         .rcp-zego-fill video {
           width: 100% !important;
           height: 100% !important;
+          min-height: 0 !important;
+          flex: 1 !important;
           object-fit: cover !important;
+          display: block !important;
         }
       }
     `;
@@ -228,21 +245,52 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
       if (window.innerWidth <= 768) {
         const zegoFill = vcol.querySelector<HTMLElement>(".rcp-zego-fill");
         if (zegoFill) {
-          const grids = zegoFill.querySelectorAll<HTMLElement>("div");
-          grids.forEach((div) => {
-            const children = Array.from(div.children);
-            if (children.length === 2 && children.every(c => c.tagName === "DIV")) {
-              div.style.setProperty("flex-direction", "column", "important");
+          // Force the fill itself to be a flex column
+          zegoFill.style.setProperty("display", "flex", "important");
+          zegoFill.style.setProperty("flex-direction", "column", "important");
+          zegoFill.style.setProperty("width", "100%", "important");
+          zegoFill.style.setProperty("height", "100%", "important");
+          zegoFill.style.setProperty("overflow", "hidden", "important");
+
+          // Walk every descendant div — force flex-column + full size on all wrappers
+          zegoFill.querySelectorAll<HTMLElement>("div").forEach((div) => {
+            if (isOurEl(div)) return;
+            div.style.setProperty("min-height", "0", "important");
+            div.style.setProperty("overflow", "hidden", "important");
+
+            const children = Array.from(div.children).filter(c => c.tagName === "DIV");
+            if (children.length >= 2) {
+              // This is the grid row — stack it vertically
               div.style.setProperty("display", "flex", "important");
+              div.style.setProperty("flex-direction", "column", "important");
               div.style.setProperty("width", "100%", "important");
               div.style.setProperty("height", "100%", "important");
               children.forEach((child) => {
-                (child as HTMLElement).style.setProperty("width", "100%", "important");
-                (child as HTMLElement).style.setProperty("height", "50%", "important");
-                (child as HTMLElement).style.setProperty("flex", "1 1 50%", "important");
-                (child as HTMLElement).style.setProperty("max-width", "100%", "important");
+                const el = child as HTMLElement;
+                const pct = `${100 / children.length}%`;
+                el.style.setProperty("width", "100%", "important");
+                el.style.setProperty("height", pct, "important");
+                el.style.setProperty("flex", `1 1 ${pct}`, "important");
+                el.style.setProperty("max-width", "100%", "important");
+                el.style.setProperty("min-height", "0", "important");
+                el.style.setProperty("overflow", "hidden", "important");
               });
+            } else {
+              div.style.setProperty("width", "100%", "important");
+              div.style.setProperty("height", "100%", "important");
+              div.style.setProperty("display", "flex", "important");
+              div.style.setProperty("flex-direction", "column", "important");
             }
+          });
+
+          // Force all videos to fill their container — this kills the black bars
+          zegoFill.querySelectorAll<HTMLVideoElement>("video").forEach((video) => {
+            video.style.setProperty("width", "100%", "important");
+            video.style.setProperty("height", "100%", "important");
+            video.style.setProperty("min-height", "0", "important");
+            video.style.setProperty("flex", "1", "important");
+            video.style.setProperty("object-fit", "cover", "important");
+            video.style.setProperty("display", "block", "important");
           });
         }
       }
@@ -891,23 +939,46 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
 
         /* ── FORCE ZEGO VERTICAL STACK ON MOBILE ── */
         @media (max-width: 768px) {
-          .rcp-zego-fill > div > div,
-          .rcp-zego-fill > div > div > div {
-            flex-direction: column !important;
+          /* Force every wrapper div inside zego fill to be a full-height flex column */
+          .rcp-zego-fill,
+          .rcp-zego-fill > div,
+          .rcp-zego-fill > div > div {
             display: flex !important;
+            flex-direction: column !important;
             width: 100% !important;
             height: 100% !important;
+            min-height: 0 !important;
+            overflow: hidden !important;
           }
+          /* Each tile (partner + self) gets exactly half */
+          .rcp-zego-fill > div > div > div {
+            display: flex !important;
+            flex-direction: column !important;
+            width: 100% !important;
+            height: 50% !important;
+            min-height: 0 !important;
+            flex: 1 1 50% !important;
+            overflow: hidden !important;
+          }
+          /* Inner wrappers inside each tile fill their tile */
+          .rcp-zego-fill > div > div > div > div,
+          .rcp-zego-fill > div > div > div > div > div {
+            width: 100% !important;
+            height: 100% !important;
+            min-height: 0 !important;
+            flex: 1 !important;
+            display: flex !important;
+            flex-direction: column !important;
+            overflow: hidden !important;
+          }
+          /* Videos fill their container completely — no black bars */
           .rcp-zego-fill video {
             width: 100% !important;
-            height: 50% !important;
+            height: 100% !important;
+            min-height: 0 !important;
+            flex: 1 !important;
             object-fit: cover !important;
-            flex: 1 !important;
-          }
-          .rcp-zego-fill > div > div > div > div {
-            width: 100% !important;
-            height: 50% !important;
-            flex: 1 !important;
+            display: block !important;
           }
         }
 
