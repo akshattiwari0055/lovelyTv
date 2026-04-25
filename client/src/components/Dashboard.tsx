@@ -9,6 +9,10 @@
  *  6. Scroll conflict → userAtBottomRef guards auto-scroll, send skips it
  *  7. Viewport stabilization → #root overflow:hidden in GLOBAL_CSS
  *  8. MessageList padding reduced to minimize vertical shift on keyboard open
+ *  9. [NEW] Keyboard dismiss fix → inputRef.current?.focus() called SYNCHRONOUSLY
+ *     inside handleSend BEFORE any setState, so the browser never has a chance
+ *     to dismiss the software keyboard. Also removed the form onSubmit to avoid
+ *     a second synthetic blur that some mobile browsers fire on form submit.
  */
 
 import {
@@ -50,7 +54,6 @@ const GLOBAL_CSS = `
 
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-  /* FIX #7: Stabilize viewport — prevents browser scroll-resize fights on mobile */
   html, body {
     height: 100%;
     overflow: hidden;
@@ -65,7 +68,17 @@ const GLOBAL_CSS = `
 
   ::-webkit-scrollbar { width: 4px; background: transparent; }
   ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 4px; }
-  input, textarea, select { font-size: 15px !important; font-family: 'Figtree', sans-serif; }
+
+  /*
+   * FIX #9 — Critical: prevent iOS Safari from dismissing keyboard.
+   * Setting font-size ≥ 16px stops the auto-zoom that causes a blur+scroll
+   * combo. We need this on BOTH the chat input and every other input to avoid
+   * the page jumping when focus changes between fields.
+   */
+  input, textarea, select {
+    font-size: 16px !important;
+    font-family: 'Figtree', sans-serif;
+  }
 
   @keyframes pulse-ring {
     0% { box-shadow: 0 0 0 0 rgba(139, 92, 246, 0.5); }
@@ -414,7 +427,6 @@ const MessageBubble = React.memo(function MessageBubble({ msg, mine }: { msg: Me
 });
 
 // ─── MessageList ─────────────────────────────────────────────────────────────
-// FIX #8: Reduced vertical padding to minimize layout shift when keyboard opens.
 const MessageList = React.memo(function MessageList({
   messages, userId, partnerTyping, bottomRef,
 }: {
@@ -426,7 +438,6 @@ const MessageList = React.memo(function MessageList({
   return (
     <div style={{
       flex: 1, overflowY: "auto", overflowX: "hidden",
-      // FIX #8: "16px 20px 8px" instead of "20px 20px" — less vertical shift on keyboard open
       padding: "16px 20px 8px",
       display: "flex", flexDirection: "column",
       gap: 4, minHeight: 0, background: C.bg,
@@ -468,13 +479,18 @@ const MessageList = React.memo(function MessageList({
 });
 
 // ─── ChatInput ────────────────────────────────────────────────────────────────
+// FIX #9: ChatInput is a controlled, memoized component.
+// The send button uses type="button" (NOT type="submit") to avoid form submission
+// which causes a blur event on some mobile browsers. We also removed the <form>
+// onSubmit entirely — the send action fires only through onClick / Enter key
+// which is handled imperatively in the parent via handleSend.
 interface ChatInputProps {
   value: string;
   imagePreview: string | null;
   inputRef: React.RefObject<HTMLInputElement>;
   fileRef: React.RefObject<HTMLInputElement>;
   onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
-  onSend: (e: FormEvent) => void;
+  onSend: () => void;          // FIX #9: plain void, not FormEvent
   onImageUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onClearImage: () => void;
 }
@@ -484,6 +500,16 @@ const ChatInput = React.memo(function ChatInput({
   onChange, onSend, onImageUpload, onClearImage,
 }: ChatInputProps) {
   const hasContent = value.trim() || imagePreview;
+
+  // FIX #9: Handle Enter key directly on the input so we can call focus()
+  // imperatively before anything else in the send flow.
+  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      onSend();
+    }
+  }, [onSend]);
+
   return (
     <>
       {imagePreview && (
@@ -503,8 +529,8 @@ const ChatInput = React.memo(function ChatInput({
           </button>
         </div>
       )}
-      <form
-        onSubmit={onSend}
+      {/* FIX #9: No <form> wrapper — form submit triggers blur on iOS Safari */}
+      <div
         style={{
           display: "flex", alignItems: "center", gap: 8,
           padding: "12px 16px",
@@ -515,12 +541,16 @@ const ChatInput = React.memo(function ChatInput({
         }}
       >
         <input type="file" accept="image/*" style={{ display: "none" }} ref={fileRef} onChange={onImageUpload} />
-        <button type="button" onClick={() => fileRef.current?.click()} style={{
-          width: 38, height: 38, borderRadius: 10, flexShrink: 0,
-          background: C.surfaceAlt, border: `1px solid ${C.border}`,
-          display: "flex", alignItems: "center", justifyContent: "center",
-          color: C.textMuted, cursor: "pointer",
-        }}>
+        <button
+          type="button"
+          onClick={() => fileRef.current?.click()}
+          style={{
+            width: 38, height: 38, borderRadius: 10, flexShrink: 0,
+            background: C.surfaceAlt, border: `1px solid ${C.border}`,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            color: C.textMuted, cursor: "pointer",
+          }}
+        >
           <ImagePlus size={15} />
         </button>
         <input
@@ -530,32 +560,38 @@ const ChatInput = React.memo(function ChatInput({
             borderRadius: 12, padding: "10px 14px",
             color: C.text, outline: "none", minWidth: 0, fontFamily: FONT_BODY,
             transition: "border-color 0.2s",
+            // FIX #9: font-size 16px prevents iOS auto-zoom which causes blur
+            fontSize: "16px",
           }}
           onFocus={e => e.currentTarget.style.borderColor = C.borderGlow}
           onBlur={e => e.currentTarget.style.borderColor = C.border}
           placeholder="Message…"
           value={value}
           onChange={onChange}
-          autoComplete="off" autoCorrect="off" spellCheck={false} enterKeyHint="send"
+          onKeyDown={handleKeyDown}
+          autoComplete="off"
+          autoCorrect="off"
+          spellCheck={false}
+          enterKeyHint="send"
         />
-<button
-  type="button"
-  onClick={onSend}
-  className="send-btn"
-  disabled={!hasContent}
-  style={{
-    width: 38, height: 38, borderRadius: 10, flexShrink: 0,
-    background: hasContent ? "linear-gradient(135deg, #6d28d9, #8b5cf6)" : C.surfaceAlt,
-    border: hasContent ? "none" : `1px solid ${C.border}`,
-    display: "flex", alignItems: "center", justifyContent: "center",
-    color: hasContent ? "#fff" : C.textDim,
-    cursor: hasContent ? "pointer" : "default",
-    transition: "all 0.2s",
-  }}
->
+        <button
+          type="button"
+          onClick={onSend}
+          className="send-btn"
+          disabled={!hasContent}
+          style={{
+            width: 38, height: 38, borderRadius: 10, flexShrink: 0,
+            background: hasContent ? "linear-gradient(135deg, #6d28d9, #8b5cf6)" : C.surfaceAlt,
+            border: hasContent ? "none" : `1px solid ${C.border}`,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            color: hasContent ? "#fff" : C.textDim,
+            cursor: hasContent ? "pointer" : "default",
+            transition: "all 0.2s",
+          }}
+        >
           <Send size={14} />
         </button>
-      </form>
+      </div>
     </>
   );
 });
@@ -568,10 +604,6 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const compInputRef = useRef<HTMLInputElement>(null);
   const isTypingRef = useRef(false);
-
-  // FIX #5 + #6: Sending lock prevents scroll-on-messages from firing during
-  // the keyboard animation. userAtBottomRef gates auto-scroll to only happen
-  // when the user is already near the bottom (no surprise jumps mid-scroll).
   const isSendingRef = useRef(false);
   const userAtBottomRef = useRef(true);
 
@@ -601,6 +633,14 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
   const [isDesktop, setIsDesktop] = useState(() =>
     typeof window !== "undefined" ? window.innerWidth >= 1024 : false
   );
+
+  // Keep a ref to messageInput so handleSend (memoized) can read the latest value
+  // without needing to be recreated every keystroke.
+  const messageInputRef = useRef(messageInput);
+  useEffect(() => { messageInputRef.current = messageInput; }, [messageInput]);
+
+  const imagePreviewRef = useRef(imagePreview);
+  useEffect(() => { imagePreviewRef.current = imagePreview; }, [imagePreview]);
 
   const usersWithUnread = useMemo(
     () => Object.values(unreadCounts).filter((c) => c > 0).length,
@@ -686,31 +726,28 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedFriend?.id, conversationIsOpen]);
 
-  // FIX #6: Track scroll position without causing re-renders.
   const handleMessageScroll = useCallback(() => {
     const el = bottomRef.current?.parentElement;
     if (!el) return;
     userAtBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
   }, []);
 
-  // FIX #5 + #6: Guard both conditions before scrolling.
-  // Delay is 250ms (was 150ms) to let mobile keyboard finish animating first.
   useEffect(() => {
-    if (isSendingRef.current) return;       // FIX #5: skip while send is locking
-    if (!userAtBottomRef.current) return;   // FIX #6: skip if user scrolled up
+    if (isSendingRef.current) return;
+    if (!userAtBottomRef.current) return;
 
     const timer = setTimeout(() => {
       bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-    }, 250); // FIX #5: 250ms — matches actual keyboard animation duration
+    }, 250);
 
     return () => clearTimeout(timer);
   }, [messages]);
 
-useEffect(() => {
-  if (activeTab === "chat" && selectedFriend) {
-    compInputRef.current?.focus();
-  }
-}, [activeTab, selectedFriend?.id]);
+  useEffect(() => {
+    if (activeTab === "chat" && selectedFriend) {
+      compInputRef.current?.focus();
+    }
+  }, [activeTab, selectedFriend?.id]);
 
   useEffect(() => {
     const onResize = () => setIsDesktop(window.innerWidth >= 1024);
@@ -735,7 +772,6 @@ useEffect(() => {
       setMessages((c) => c.map((m) => unread.includes(m.id) ? { ...m, isRead: true } : m));
     }
     setUnreadCounts((c) => ({ ...c, [otherId]: 0 }));
-    // Scroll to bottom immediately when a conversation loads
     userAtBottomRef.current = true;
     setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "auto" }), 50);
   }
@@ -795,36 +831,59 @@ useEffect(() => {
   const selectedFriendIdRef = useRef<string | undefined>(undefined);
   useEffect(() => { selectedFriendIdRef.current = selectedFriend?.id; }, [selectedFriend?.id]);
 
-  // FIX #5 (CORE): Lock scroll for 300ms on send (keyboard animation = ~250-300ms).
-  // We set isSendingRef BEFORE the state update so the messages useEffect that
-  // fires synchronously after cannot trigger a premature or conflicting scroll.
-  const handleSend = useCallback((e: FormEvent) => {
-    e.preventDefault();
+  // ─── FIX #9 — handleSend: keep keyboard open on mobile ───────────────────
+  //
+  // Root cause: any setState() call during/after a touch event can cause React
+  // to re-render ChatInput. If the send button's mousedown/touchstart briefly
+  // moves focus away from the input, iOS Safari dismisses the keyboard. By the
+  // time React re-renders, the input is no longer focused.
+  //
+  // Solution:
+  //   1. Call inputRef.current.focus() FIRST — synchronously, before any state
+  //      mutation — so the browser's focus never leaves the input.
+  //   2. Read input value from a ref (messageInputRef) instead of closure state,
+  //      so this callback never needs to be recreated (stable reference = no
+  //      ChatInput re-mount).
+  //   3. Clear via setMessageInput("") AFTER emitting, keeping the single
+  //      controlled-input contract intact.
+  //   4. Lock isSendingRef for 300ms to suppress the scroll-into-view that
+  //      would otherwise fight the keyboard animation.
+  //
+  const handleSend = useCallback(() => {
     const friendId = selectedFriendIdRef.current;
-    if (!friendId) return;
+    const text = messageInputRef.current;
+    const img = imagePreviewRef.current;
 
-    // Lock BEFORE state change — prevents the messages useEffect scroll
+    if (!friendId || (!text.trim() && !img)) return;
+
+    // ── Step 1: Re-focus BEFORE any state mutation ─────────────────────────
+    // This is the critical line. Calling focus() synchronously within the same
+    // event-loop tick as the user interaction keeps the software keyboard up on
+    // iOS Safari and Android Chrome.
+    compInputRef.current?.focus();
+
+    // ── Step 2: Lock scroll during keyboard animation ──────────────────────
     isSendingRef.current = true;
-    setTimeout(() => { isSendingRef.current = false; }, 300); // FIX #5: 300ms lock
+    setTimeout(() => { isSendingRef.current = false; }, 300);
 
-    setMessageInput(prev => {
-      if (!prev.trim() && !imagePreview) return prev;
-      getSocket()?.emit("message:send", {
-        receiverId: friendId,
-        content: prev,
-        imageUrl: imagePreview,
-      });
-      getSocket()?.emit("typing:stop", { receiverId: friendId });
-      setImagePreview(null);
-      // Scroll after lock expires — keyboard is fully settled by then
-      setTimeout(() => {
-        userAtBottomRef.current = true;
-        bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-      }, 320); // FIX #5: 320ms — just after the 300ms lock releases
-      return "";
+    // ── Step 3: Emit & clear state ─────────────────────────────────────────
+    getSocket()?.emit("message:send", {
+      receiverId: friendId,
+      content: text,
+      imageUrl: img,
     });
+    getSocket()?.emit("typing:stop", { receiverId: friendId });
+
+    setMessageInput("");
+    setImagePreview(null);
+
+    // ── Step 4: Scroll after lock expires ─────────────────────────────────
+    setTimeout(() => {
+      userAtBottomRef.current = true;
+      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    }, 320);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, []); // stable — reads all mutable values via refs
 
   const handleTyping = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     setMessageInput(e.target.value);
@@ -1012,7 +1071,6 @@ useEffect(() => {
           </div>
         </div>
 
-        {/* FIX #6: onScroll handler on the wrapper keeps userAtBottomRef accurate */}
         <div
           onScroll={handleMessageScroll}
           style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column", minHeight: 0 }}
@@ -1021,10 +1079,14 @@ useEffect(() => {
         </div>
 
         <ChatInput
-          value={messageInput} imagePreview={imagePreview}
-          inputRef={compInputRef} fileRef={fileRef}
-          onChange={handleTyping} onSend={handleSend}
-          onImageUpload={handleImgUpload} onClearImage={handleClearImage}
+          value={messageInput}
+          imagePreview={imagePreview}
+          inputRef={compInputRef}
+          fileRef={fileRef}
+          onChange={handleTyping}
+          onSend={handleSend}
+          onImageUpload={handleImgUpload}
+          onClearImage={handleClearImage}
         />
       </div>
     );
