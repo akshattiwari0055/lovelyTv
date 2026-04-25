@@ -347,13 +347,11 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
       setFloatingReactions((c) => [...c, { id, emoji }]);
       window.setTimeout(() => setFloatingReactions((c) => c.filter((r) => r.id !== id)), 2200);
     });
-    // FIX: Only add partner messages from socket — own messages are added optimistically in sendLiveChatMessage
+    // Only add PARTNER messages from socket.
+    // Own messages are added optimistically in sendLiveChatMessage — drop any echo from server.
     socket.on("match:chat", (payload: LiveChatMessage) => {
-      setLiveMessages((c) => {
-        // Avoid duplicate if server echoes back own message
-        if (payload.senderId === getSocket()?.id) return c;
-        return [...c.slice(-19), payload];
-      });
+      if (payload.senderId === user.id) return; // server echoed our own message — already shown optimistically
+      setLiveMessages((c) => [...c.slice(-19), payload]);
     });
     return () => {
       socket.off("connect"); socket.off("match:found"); socket.off("match:partner-left");
