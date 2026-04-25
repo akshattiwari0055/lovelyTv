@@ -706,9 +706,16 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
         }
 
         /* ── CAMERA FLIP BUTTON ───────────────────── */
+        /* Rendered OUTSIDE rcp-vcol so the Zego button-nuker never touches it */
+        .rcp-flip-btn-portal {
+          position: absolute;
+          /* sits just below the topbar (56px) + 14px gap */
+          top: calc(56px + 14px);
+          left: 14px;
+          z-index: 200;
+          pointer-events: auto;
+        }
         .rcp-flip-btn {
-          position: absolute; top: 14px; left: 14px;
-          z-index: 6; pointer-events: auto;
           width: 38px; height: 38px; border-radius: 12px;
           background: rgba(8,11,18,0.55); backdrop-filter: blur(12px);
           border: 1px solid rgba(241,245,249,0.12);
@@ -719,7 +726,7 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
         .rcp-flip-btn:hover { background: rgba(34,211,238,0.12); color: var(--cyan); border-color: rgba(34,211,238,0.25); }
         .rcp-flip-btn:active { transform: scale(0.88); }
         .rcp-flip-btn:disabled { opacity: 0.3; cursor: default; transform: none; }
-        .rcp-flip-btn .rcp-flip-icon {
+        .rcp-flip-icon {
           transition: transform 0.35s cubic-bezier(0.34,1.56,0.64,1);
         }
         .rcp-flip-btn.flipping .rcp-flip-icon {
@@ -959,8 +966,8 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
         .rcp-drawer-send:active { transform: scale(0.9); }
 
         /* ── NUKE ZEGO HANGUP ────────────────────── */
-        .rcp-vcol button:not(.rcp-act-btn):not(.rcp-back-btn):not(.rcp-flag-btn):not(.rcp-flip-btn),
-        .rcp-vcol [role="button"]:not(.rcp-act-btn):not(.rcp-flip-btn) {
+        .rcp-vcol button:not(.rcp-act-btn):not(.rcp-back-btn):not(.rcp-flag-btn),
+        .rcp-vcol [role="button"]:not(.rcp-act-btn) {
           display: none !important;
           visibility: hidden !important;
           pointer-events: none !important;
@@ -972,13 +979,6 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
           visibility: visible !important;
           pointer-events: auto !important;
           width: 40px !important; height: 40px !important; opacity: 1 !important;
-        }
-        /* Ensure our flip button is never nuked */
-        .rcp-flip-btn {
-          display: flex !important;
-          visibility: visible !important;
-          pointer-events: auto !important;
-          width: 38px !important; height: 38px !important; opacity: 1 !important;
         }
 
         /* ── FORCE ZEGO VERTICAL STACK ON MOBILE ── */
@@ -1198,19 +1198,6 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
               </div>
             )}
 
-            {/* ── CAMERA FLIP BUTTON (top-left, always visible when applicable) */}
-            {showFlipButton && (
-              <button
-                className={`rcp-flip-btn${isFlipping ? " flipping" : ""}`}
-                onClick={handleFlipCamera}
-                disabled={isFlipping}
-                title={facingMode === "user" ? "Switch to back camera" : "Switch to front camera"}
-                aria-label="Flip camera"
-              >
-                <FlipHorizontal2 size={17} className="rcp-flip-icon" />
-              </button>
-            )}
-
             {/* Call badges — offset right of flip button when in call */}
             {isInCall && (
               <div className="rcp-call-badges-incall">
@@ -1377,6 +1364,21 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
                 Submit Report
               </button>
             </div>
+          </div>
+        )}
+
+        {/* CAMERA FLIP BUTTON — rendered outside rcp-vcol so Zego nuker never kills it */}
+        {showFlipButton && (
+          <div className="rcp-flip-btn-portal">
+            <button
+              className={`rcp-flip-btn${isFlipping ? " flipping" : ""}`}
+              onClick={handleFlipCamera}
+              disabled={isFlipping}
+              title={facingMode === "user" ? "Switch to back camera" : "Switch to front camera"}
+              aria-label="Flip camera"
+            >
+              <FlipHorizontal2 size={17} className="rcp-flip-icon" />
+            </button>
           </div>
         )}
 
