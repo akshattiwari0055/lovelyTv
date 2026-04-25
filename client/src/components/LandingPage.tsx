@@ -185,7 +185,7 @@ export function LandingPage({ isLoggedIn, onLogout }: LandingPageProps) {
           min-height: 100dvh;
           display: flex; flex-direction: column;
           align-items: center; justify-content: center;
-          padding: calc(var(--header-h) + 56px) 24px 72px;
+          padding: calc(var(--header-h) + 16px) 16px 48px;
           text-align: center;
           position: relative; overflow: hidden;
         }
@@ -222,7 +222,7 @@ export function LandingPage({ isLoggedIn, onLogout }: LandingPageProps) {
           border-radius: 100px; padding: 7px 18px 7px 13px;
           font-family: var(--font-head); font-size: 11px; font-weight: 700;
           letter-spacing: 0.2em; text-transform: uppercase; color: var(--pink);
-          margin-bottom: 32px; position: relative; z-index: 2;
+          margin-bottom: 20px; position: relative; z-index: 2;
         }
         .lp-live-dot {
           width: 7px; height: 7px; border-radius: 50%;
@@ -234,19 +234,20 @@ export function LandingPage({ isLoggedIn, onLogout }: LandingPageProps) {
         /* ── HEADLINES ─────────────────────────────── */
         .lp-h1 {
           font-family: var(--font-display);
-          font-size: clamp(80px, 16vw, 200px);
-          line-height: 0.9;
+          font-size: clamp(72px, 22vw, 220px);
+          line-height: 0.88;
           letter-spacing: 0.01em;
           color: var(--text);
-          margin: 0 0 4px;
+          margin: 0 0 2px;
           position: relative; z-index: 2;
+          width: 100%;
         }
 
         /* Continuously cycling pink → violet → blue → pink gradient */
         .lp-h1-line2 {
           font-family: var(--font-display);
-          font-size: clamp(76px, 15vw, 190px);
-          line-height: 0.9;
+          font-size: clamp(68px, 21vw, 210px);
+          line-height: 0.88;
           letter-spacing: 0.01em;
           background: linear-gradient(
             90deg,
@@ -261,9 +262,10 @@ export function LandingPage({ isLoggedIn, onLogout }: LandingPageProps) {
           -webkit-text-fill-color: transparent;
           background-clip: text;
           animation: lp-grad-shift 4s linear infinite;
-          margin: 0 0 40px;
+          margin: 0 0 28px;
           position: relative; z-index: 2;
           display: block;
+          width: 100%;
         }
         @keyframes lp-grad-shift {
           0%   { background-position: 0% 50%; }
@@ -272,16 +274,16 @@ export function LandingPage({ isLoggedIn, onLogout }: LandingPageProps) {
 
         /* ── SUBTITLE ──────────────────────────────── */
         .lp-hero-subtitle {
-          font-size: clamp(14px, 1.8vw, 17px);
+          font-size: clamp(13px, 1.6vw, 17px);
           color: var(--muted); line-height: 1.75;
-          max-width: 560px; margin: 0 auto 36px;
+          max-width: 560px; margin: 0 auto 24px;
           font-weight: 400; position: relative; z-index: 2;
         }
 
         /* ── TRUST TAGS ────────────────────────────── */
         .lp-trust-row {
           display: flex; flex-wrap: wrap; gap: 8px;
-          justify-content: center; margin-bottom: 36px;
+          justify-content: center; margin-bottom: 24px;
           position: relative; z-index: 2;
         }
         .lp-trust-tag {
@@ -296,7 +298,7 @@ export function LandingPage({ isLoggedIn, onLogout }: LandingPageProps) {
         .lp-hero-btns {
           display: flex; align-items: center; justify-content: center;
           gap: 12px; flex-wrap: wrap;
-          position: relative; z-index: 2; margin-bottom: 60px;
+          position: relative; z-index: 2; margin-bottom: 36px;
         }
         .lp-btn-primary {
           display: inline-flex; align-items: center; gap: 8px;
@@ -525,9 +527,15 @@ export function LandingPage({ isLoggedIn, onLogout }: LandingPageProps) {
 
         /* ── RESPONSIVE ────────────────────────────── */
         @media (max-width: 640px) {
-          .lp-hero { padding: calc(var(--header-h) + 32px) 20px 56px; }
+          .lp-hero { padding: calc(var(--header-h) + 8px) 12px 40px; }
+          .lp-h1 { font-size: clamp(72px, 22vw, 120px); }
+          .lp-h1-line2 { font-size: clamp(68px, 21vw, 114px); margin-bottom: 20px; }
           .lp-btn-primary, .lp-btn-secondary { padding: 13px 20px; font-size: 14px; }
-          .lp-stat-cell { padding: 16px 10px; }
+          .lp-stat-cell { padding: 14px 8px; }
+          .lp-live-pill { margin-bottom: 14px; }
+        }
+        @media (min-width: 641px) and (max-width: 1024px) {
+          .lp-hero { padding: calc(var(--header-h) + 12px) 20px 56px; }
         }
       `}</style>
 
