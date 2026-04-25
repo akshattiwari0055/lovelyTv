@@ -397,14 +397,44 @@ const ChatItem = React.memo(function ChatItem({
         display: "flex", alignItems: "center", gap: 12,
         padding: compact ? "10px 16px" : "13px 20px",
         width: "100%", textAlign: "left",
-        background: active ? "rgba(139,92,246,0.08)" : "transparent",
+        background: active
+          ? "rgba(139,92,246,0.08)"
+          : unread > 0
+            ? "rgba(139,92,246,0.04)"
+            : "transparent",
         border: "none",
         borderBottom: `1px solid ${C.border}`,
         cursor: "pointer", transition: "background 0.15s",
-        borderLeft: active ? `3px solid ${C.accent}` : "3px solid transparent",
+        borderLeft: active
+          ? `3px solid ${C.accent}`
+          : unread > 0
+            ? `3px solid ${C.accentPink}`
+            : "3px solid transparent",
       }}
     >
-      <Avatar name={friend.fullName} size={compact ? 38 : 44} color="cyan" online={unread > 0} />
+      <div style={{ position: "relative", flexShrink: 0 }}>
+        <Avatar name={friend.fullName} size={compact ? 38 : 44} color="cyan" online={unread > 0} />
+        {/* Inline dot badge on avatar for extra visibility */}
+        {unread > 0 && (
+          <span
+            key={`dot-${unread}`}
+            className="unread-badge-new"
+            style={{
+              position: "absolute", top: -3, right: -3,
+              background: "linear-gradient(135deg, #be185d, #ec4899)",
+              color: "#fff", fontSize: "0.55rem", fontWeight: 900,
+              minWidth: 18, height: 18, borderRadius: 100,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              padding: "0 4px",
+              border: `2px solid ${C.bg}`,
+              fontFamily: FONT_DISPLAY,
+              boxShadow: "0 2px 8px rgba(236,72,153,0.5)",
+            }}
+          >
+            {unread > 99 ? "99+" : unread}
+          </span>
+        )}
+      </div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{
           fontSize: compact ? "0.85rem" : "0.9rem", fontWeight: unread > 0 ? 700 : 500,
@@ -423,18 +453,21 @@ const ChatItem = React.memo(function ChatItem({
           {lastMsg ?? (friend.interests || "Tap to chat")}
         </div>
       </div>
-      <div style={{ minWidth: 28, display: "flex", justifyContent: "flex-end" }}>
+      <div style={{ minWidth: 32, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
         {unread > 0 ? (
-          <span style={{
-            background: "linear-gradient(135deg, #6d28d9, #8b5cf6)",
-            color: "#fff", fontSize: "0.6rem", fontWeight: 800,
-            padding: "2px 7px", borderRadius: 100,
-            minWidth: 20, textAlign: "center",
-            fontFamily: FONT_DISPLAY,
-          }}
-          className="unread-badge-new"
-          key={unread} // re-mounts = re-animates on each new message
-        >
+          <span
+            style={{
+              background: "linear-gradient(135deg, #be185d, #ec4899)",
+              color: "#fff", fontSize: "0.65rem", fontWeight: 900,
+              padding: "3px 8px", borderRadius: 100,
+              minWidth: 22, textAlign: "center",
+              fontFamily: FONT_DISPLAY,
+              boxShadow: "0 2px 10px rgba(236,72,153,0.4)",
+              letterSpacing: "-0.01em",
+            }}
+            className="unread-badge-new"
+            key={`badge-${unread}`}
+          >
             {unread > 99 ? "99+" : unread}
           </span>
         ) : null}
@@ -909,9 +942,39 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
   }, []);
 
   async function loadDiscover() { const r = await api.get("/discover"); setDiscoverUsers(r.data); }
-  async function loadFriends() { const r = await api.get("/friends"); setFriends(r.data); }
+  async function loadFriends() {
+    const r = await api.get("/friends");
+    const friendList: User[] = r.data;
+    setFriends(friendList);
+    // After loading friends, fetch unread counts for all conversations in parallel
+    // so badges show immediately on app open — never rely solely on socket events
+    void loadAllUnreads(friendList);
+    return friendList;
+  }
   async function loadRequests() { const r = await api.get("/friend-requests"); setRequests(r.data); }
   async function loadBlockedUsers() { const r = await api.get("/blocked-users"); setBlockedUsers(r.data); }
+
+  async function loadAllUnreads(friendList: User[]) {
+    // Fetch each conversation silently and count unread messages from others
+    // Uses Promise.allSettled so one failure doesn't block the rest
+    const results = await Promise.allSettled(
+      friendList.map(f => api.get(`/messages/${f.id}`))
+    );
+    const counts: Record<string, number> = {};
+    const lastMsgs: Record<string, string> = {};
+    results.forEach((res, i) => {
+      if (res.status !== "fulfilled") return;
+      const msgs: Message[] = res.value.data.messages;
+      const friendId = friendList[i].id;
+      // Count unread messages received from this friend
+      counts[friendId] = msgs.filter(m => m.senderId === friendId && !m.isRead).length;
+      // Also grab last message preview
+      const last = msgs[msgs.length - 1];
+      if (last?.content) lastMsgs[friendId] = last.content;
+    });
+    setUnreadCounts(prev => ({ ...prev, ...counts }));
+    setLastMessages(prev => ({ ...prev, ...lastMsgs }));
+  }
 
   async function loadConvo(otherId: string, markRead = false) {
     const r = await api.get(`/messages/${otherId}`);
@@ -924,7 +987,14 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
       getSocket()?.emit("message:read", { messageIds: unread, senderId: otherId });
       setMessages((c) => c.map((m) => unread.includes(m.id) ? { ...m, isRead: true } : m));
     }
-    setUnreadCounts((c) => ({ ...c, [otherId]: 0 }));
+    // FIX: Only zero the count when actually marking as read (chat is open).
+    // If markRead=false (background load), preserve existing unread count.
+    if (markRead) {
+      setUnreadCounts((c) => ({ ...c, [otherId]: 0 }));
+    } else {
+      // Update with fresh count from server without zeroing
+      setUnreadCounts((c) => ({ ...c, [otherId]: unread.length }));
+    }
     userAtBottomRef.current = true;
     setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "auto" }), 50);
   }
