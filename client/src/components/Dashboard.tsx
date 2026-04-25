@@ -16,7 +16,7 @@
  */
 
 import {
-  FormEvent, useCallback, useEffect, useMemo, useRef, useState,
+  useCallback, useEffect, useMemo, useRef, useState,
 } from "react";
 import React from "react";
 import { useNavigate } from "react-router-dom";
@@ -105,6 +105,23 @@ const GLOBAL_CSS = `
     0% { background-position: -200% center; }
     100% { background-position: 200% center; }
   }
+  @keyframes toast-in {
+    0%   { opacity: 0; transform: translateY(16px) scale(0.92); }
+    60%  { opacity: 1; transform: translateY(-3px) scale(1.02); }
+    100% { opacity: 1; transform: translateY(0) scale(1); }
+  }
+  @keyframes toast-out {
+    0%   { opacity: 1; transform: translateY(0) scale(1); }
+    100% { opacity: 0; transform: translateY(10px) scale(0.94); }
+  }
+  @keyframes badge-pop {
+    0%   { transform: scale(0.5); opacity: 0; }
+    60%  { transform: scale(1.25); opacity: 1; }
+    100% { transform: scale(1); opacity: 1; }
+  }
+  .unread-badge-new { animation: badge-pop 0.35s cubic-bezier(0.34,1.56,0.64,1) forwards; }
+  .toast-enter { animation: toast-in 0.38s cubic-bezier(0.34,1.4,0.64,1) forwards; }
+  .toast-exit  { animation: toast-out 0.28s ease-in forwards; }
 
   .chat-item:hover { background: rgba(139,92,246,0.05) !important; }
   .send-btn:not(:disabled):hover { transform: scale(1.05); }
@@ -139,6 +156,96 @@ const C = {
 
 const FONT_DISPLAY = "'Outfit', sans-serif";
 const FONT_BODY = "'Figtree', sans-serif";
+
+// ─── UnreadToast ─────────────────────────────────────────────────────────────
+// Shown when a message arrives from a friend who is NOT the currently open chat.
+// Stacks up to 3 toasts, each auto-dismisses after 4 s.
+type ToastEntry = { id: string; senderId: string; senderName: string; preview: string; count: number; exiting: boolean };
+
+const UnreadToast = React.memo(function UnreadToast({
+  toasts, onOpen, onDismiss,
+}: { toasts: ToastEntry[]; onOpen: (senderId: string) => void; onDismiss: (id: string) => void }) {
+  if (toasts.length === 0) return null;
+  return (
+    <div style={{
+      position: "fixed", bottom: 88, right: 16, zIndex: 9999,
+      display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-end",
+      pointerEvents: "none",
+    }}>
+      {toasts.map((t) => (
+        <div
+          key={t.id}
+          className={t.exiting ? "toast-exit" : "toast-enter"}
+          style={{
+            pointerEvents: "all",
+            display: "flex", alignItems: "center", gap: 10,
+            background: "linear-gradient(135deg, #1a1040 0%, #150d30 100%)",
+            border: "1px solid rgba(139,92,246,0.35)",
+            borderRadius: 16, padding: "10px 14px 10px 12px",
+            boxShadow: "0 8px 32px rgba(0,0,0,0.5), 0 0 0 1px rgba(139,92,246,0.1)",
+            maxWidth: 280, cursor: "pointer",
+            backdropFilter: "blur(12px)",
+          }}
+          onClick={() => onOpen(t.senderId)}
+        >
+          {/* Avatar circle */}
+          <div style={{
+            width: 36, height: 36, borderRadius: "50%", flexShrink: 0,
+            background: "linear-gradient(135deg, #0891b2, #06b6d4)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            fontSize: "0.75rem", fontWeight: 800, color: "#fff",
+            fontFamily: FONT_DISPLAY,
+          }}>
+            {t.senderName.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2)}
+          </div>
+
+          {/* Text */}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{
+              fontSize: "0.78rem", fontWeight: 700, color: C.text,
+              fontFamily: FONT_DISPLAY, marginBottom: 1,
+              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+            }}>
+              {t.senderName}
+            </div>
+            <div style={{
+              fontSize: "0.72rem", color: C.textMuted, fontFamily: FONT_BODY,
+              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+            }}>
+              {t.preview}
+            </div>
+          </div>
+
+          {/* Count badge */}
+          <div style={{
+            background: "linear-gradient(135deg, #6d28d9, #8b5cf6)",
+            borderRadius: 100, minWidth: 22, height: 22,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            padding: "0 6px", flexShrink: 0,
+            fontSize: "0.62rem", fontWeight: 900, color: "#fff",
+            fontFamily: FONT_DISPLAY, letterSpacing: "-0.01em",
+          }}>
+            +{t.count > 99 ? "99" : t.count}
+          </div>
+
+          {/* Dismiss × */}
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onDismiss(t.id); }}
+            style={{
+              width: 18, height: 18, borderRadius: "50%", flexShrink: 0,
+              background: "rgba(255,255,255,0.08)", border: "none",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              color: C.textDim, cursor: "pointer", marginLeft: 2,
+            }}
+          >
+            <X size={9} />
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+});
 
 // ─── Avatar ───────────────────────────────────────────────────────────────────
 const Avatar = React.memo(function Avatar({
@@ -324,7 +431,10 @@ const ChatItem = React.memo(function ChatItem({
             padding: "2px 7px", borderRadius: 100,
             minWidth: 20, textAlign: "center",
             fontFamily: FONT_DISPLAY,
-          }}>
+          }}
+          className="unread-badge-new"
+          key={unread} // re-mounts = re-animates on each new message
+        >
             {unread > 99 ? "99+" : unread}
           </span>
         ) : null}
@@ -625,6 +735,8 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [lastMessages, setLastMessages] = useState<Record<string, string>>({});
   const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
+  const [msgToasts, setMsgToasts] = useState<ToastEntry[]>([]);
+  const toastTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const [activeTab, setActiveTab] = useState<AppTab>("home");
   const [messageInput, setMessageInput] = useState("");
   const [partnerTyping, setPartnerTyping] = useState(false);
@@ -641,6 +753,37 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
 
   const imagePreviewRef = useRef(imagePreview);
   useEffect(() => { imagePreviewRef.current = imagePreview; }, [imagePreview]);
+
+  // ─── Toast helpers ────────────────────────────────────────────────────────
+  const friendsRef = useRef(friends);
+  useEffect(() => { friendsRef.current = friends; }, [friends]);
+
+  const dismissToast = useCallback((toastId: string) => {
+    // Start exit animation, then remove
+    setMsgToasts(prev => prev.map(t => t.id === toastId ? { ...t, exiting: true } : t));
+    setTimeout(() => setMsgToasts(prev => prev.filter(t => t.id !== toastId)), 300);
+    if (toastTimers.current[toastId]) {
+      clearTimeout(toastTimers.current[toastId]);
+      delete toastTimers.current[toastId];
+    }
+  }, []);
+
+  const showToast = useCallback((senderId: string, senderName: string, preview: string, newCount: number) => {
+    const toastId = `toast-${senderId}`;
+    // If toast for this sender already exists, update count + reset timer
+    setMsgToasts(prev => {
+      const existing = prev.find(t => t.id === toastId);
+      if (existing) {
+        return prev.map(t => t.id === toastId ? { ...t, count: newCount, preview, exiting: false } : t);
+      }
+      // Max 3 toasts — drop oldest
+      const trimmed = prev.length >= 3 ? prev.slice(1) : prev;
+      return [...trimmed, { id: toastId, senderId, senderName, preview, count: newCount, exiting: false }];
+    });
+    // Reset auto-dismiss timer
+    if (toastTimers.current[toastId]) clearTimeout(toastTimers.current[toastId]);
+    toastTimers.current[toastId] = setTimeout(() => dismissToast(toastId), 4000);
+  }, [dismissToast]);
 
   const usersWithUnread = useMemo(
     () => Object.values(unreadCounts).filter((c) => c > 0).length,
@@ -676,7 +819,17 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
         socket.emit("message:read", { messageIds: [msg.id], senderId: msg.senderId });
         setUnreadCounts((c) => ({ ...c, [msg.senderId]: 0 }));
       } else if (msg.senderId !== user.id) {
-        setUnreadCounts((c) => ({ ...c, [msg.senderId]: Math.min((c[msg.senderId] ?? 0) + 1, 99) }));
+        setUnreadCounts((prev) => {
+          const newCount = Math.min((prev[msg.senderId] ?? 0) + 1, 99);
+          // Show WhatsApp-style toast for the incoming message
+          const sender = friendsRef.current.find(f => f.id === msg.senderId);
+          const senderName = sender?.fullName ?? "Someone";
+          const preview = msg.content
+            ? (msg.content.length > 40 ? msg.content.slice(0, 40) + "…" : msg.content)
+            : "📷 Photo";
+          showToast(msg.senderId, senderName, preview, newCount);
+          return { ...prev, [msg.senderId]: newCount };
+        });
       }
     });
 
@@ -799,7 +952,9 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
     setMessages([]);
     setActiveTab("chat");
     setUnreadCounts((c) => ({ ...c, [friend.id]: 0 }));
-  }, []);
+    // Dismiss any toast for this friend immediately
+    dismissToast(`toast-${friend.id}`);
+  }, [dismissToast]);
 
   function goBack() {
     if (activeTab === "chat") { setSelectedFriend(null); setActiveTab("messages"); }
@@ -1250,9 +1405,16 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
   const navActive = (id: AppTab) =>
     id === "messages" ? (activeTab === "messages" || activeTab === "chat") : activeTab === id;
 
+  // ─── Toast open handler ──────────────────────────────────────────────────
+  const handleOpenToast = useCallback((senderId: string) => {
+    const friend = friendsRef.current.find(f => f.id === senderId);
+    if (friend) openChat(friend);
+  }, [openChat]);
+
   // ─── Call overlays ────────────────────────────────────────────────────────
   const callOverlays = (
     <>
+      <UnreadToast toasts={msgToasts} onOpen={handleOpenToast} onDismiss={dismissToast} />
       {outgoingCall && !activeCall && (
         <div style={{ position: "fixed", inset: 0, zIndex: 99999, background: "rgba(6,9,16,0.97)", backdropFilter: "blur(20px)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", animation: "fade-in 0.3s ease" }}>
           <div style={{ width: 100, height: 100, borderRadius: "50%", background: "linear-gradient(135deg, #6d28d9, #8b5cf6)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "2rem", fontWeight: 800, color: "#fff", fontFamily: FONT_DISPLAY, marginBottom: 24, animation: "pulse-ring 1.5s infinite" }}>
