@@ -468,7 +468,7 @@ export function AuthScreen({ onAuthenticated, isLoggedIn }: AuthScreenProps) {
           font-family: var(--font-body); font-size: 14px; color: var(--text);
           height: 100%; padding: 0; min-width: 0;
         }
-        .as-input-wrap input::placeholder { color: rgba(241,245,249,0.7); }
+        .as-input-wrap input::placeholder { color: rgba(241,245,249,0.5); }
 
         .as-status-ok  { color: #4ade80; flex-shrink: 0; }
         .as-status-err { color: #f87171; flex-shrink: 0; }
@@ -495,11 +495,11 @@ export function AuthScreen({ onAuthenticated, isLoggedIn }: AuthScreenProps) {
           font-family: var(--font-head); font-size: 11px; font-weight: 800;
           letter-spacing: 0.04em; text-transform: uppercase;
           color: var(--violet); background: rgba(167,139,250,0.1);
-          border: 1px solid rgba(167,139,250,0.2);
+          border: 1px solid rgba(167,139,250,0.4);
           border-radius: 100px; padding: 7px 13px;
           cursor: pointer; transition: background 0.15s; white-space: nowrap; flex-shrink: 0;
         }
-        .as-send-otp:hover:not(:disabled) { background: rgba(167,139,250,0.2); }
+        .as-send-otp:hover:not(:disabled) { background: rgba(167,139,250,0.4); }
         .as-send-otp:disabled { opacity: 0.4; cursor: not-allowed; }
 
         /* 2-col grid for register */
