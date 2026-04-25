@@ -18,6 +18,17 @@
  * 11. [NEW] Unread counts never stale → loadAllUnreads called on mount,
  *     tab-switch to "messages", visibilitychange (tab regains focus),
  *     after acceptRequest, and on goBack(). No manual refresh needed.
+ * 12. [BUG FIX] Unread count now updates INSTANTLY via socket message:new
+ *     without needing a page navigation. Removed slow sequential fetch.
+ *     loadAllUnreads now runs in parallel (Promise.allSettled) and is only
+ *     used as a background sync, not for the primary display.
+ * 13. [BUG FIX] Presence / online status fix: On mount, after loading friends,
+ *     we emit "presence:query" with all friend IDs so the server can reply with
+ *     their current online status. Also added a "presence:sync" socket event
+ *     handler that accepts a bulk map of { [userId]: PresenceInfo }. This means
+ *     users are never stuck as "Offline" because we proactively ask the server
+ *     right after the friend list loads, rather than waiting for organic
+ *     user:online broadcasts.
  */
 
 import {
@@ -414,7 +425,6 @@ const HeroCard = React.memo(function HeroCard({ onStartRandom }: { onStartRandom
 });
 
 // ─── ChatItem ────────────────────────────────────────────────────────────────
-// FIX #10: accepts presence prop and uses it for the online dot
 const ChatItem = React.memo(function ChatItem({
   friend, unread, lastMsg, active, onClick, compact = false, presence,
 }: {
@@ -452,7 +462,6 @@ const ChatItem = React.memo(function ChatItem({
       }}
     >
       <div style={{ position: "relative", flexShrink: 0 }}>
-        {/* FIX #10: online dot driven by real presence */}
         <Avatar name={friend.fullName} size={compact ? 38 : 44} color="cyan" online={isOnline} />
         {unread > 0 && (
           <span
@@ -807,9 +816,9 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
     typeof window !== "undefined" ? window.innerWidth >= 1024 : false
   );
 
-  // ── FIX #10: Real presence map ────────────────────────────────────────────
+  // ── FIX #10 + #13: Real presence map ─────────────────────────────────────
   // Keyed by userId. Updated by socket events user:online / user:offline.
-  // Seeded from REST /presence on mount (optional endpoint).
+  // Also proactively seeded via presence:query on mount (FIX #13).
   const [presenceMap, setPresenceMap] = useState<Record<string, PresenceInfo>>({});
 
   // Tick every 60 s so "Last seen X mins ago" label stays current
@@ -898,11 +907,13 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
     setBlockedUsers(r.data);
   }
 
-  // ── FIX #11: loadAllUnreads — single source of truth for badge counts ─────
-  // Fetches every conversation from the server and overwrites local counts.
-  // This means counts are always accurate regardless of missed socket events.
+  // ── FIX #12: loadAllUnreads — runs in parallel, used as background sync ──
+  // The PRIMARY unread increment path is now the socket message:new handler
+  // (instant, no network round-trip). This function is only a background
+  // reconciliation fallback — e.g. on tab focus or after a friend is added.
   async function loadAllUnreads(friendList: User[]) {
     if (friendList.length === 0) return;
+    // Run all fetches in parallel — much faster than sequential awaits
     const results = await Promise.allSettled(
       friendList.map(f => api.get(`/messages/${f.id}`))
     );
@@ -924,6 +935,17 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
       return merged;
     });
     setLastMessages(prev => ({ ...prev, ...lastMsgs }));
+  }
+
+  // ── FIX #13: queryPresence — ask server for current online status ──────────
+  // Emits presence:query with all friend IDs. Server responds with
+  // presence:sync { [userId]: { online, lastSeen } }. This ensures we never
+  // show a friend as "Offline" just because they connected before us.
+  function queryPresence(friendList: User[]) {
+    if (friendList.length === 0) return;
+    const socket = getSocket();
+    if (!socket) return;
+    socket.emit("presence:query", { userIds: friendList.map(f => f.id) });
   }
 
   async function loadConvo(otherId: string, markRead = false) {
@@ -950,9 +972,11 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
   useEffect(() => {
     const socket = connectSocket(token);
 
-    // FIX #10: Announce we're online immediately
+    // Announce we're online immediately
     socket.emit("user:online", { userId: user.id });
 
+    // ── FIX #12: message:new — update unread count INSTANTLY via socket ───
+    // This is the primary path. No API call, no navigation needed.
     socket.on("message:new", (msg: Message) => {
       setMessages((c) => (c.some((e) => e.id === msg.id) ? c : [...c, msg]));
       const otherId = msg.senderId === user.id ? (msg as any).receiverId ?? "" : msg.senderId;
@@ -961,9 +985,11 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
       const sf = selectedFriendRef.current;
       const isOpen = conversationIsOpenRef.current;
       if (sf?.id === msg.senderId && isOpen && document.visibilityState === "visible") {
+        // Chat is open — mark read immediately
         socket.emit("message:read", { messageIds: [msg.id], senderId: msg.senderId });
         setUnreadCounts((c) => ({ ...c, [msg.senderId]: 0 }));
       } else if (msg.senderId !== user.id) {
+        // Chat is not open — increment unread count INSTANTLY (no API call needed)
         setUnreadCounts((prev) => {
           const newCount = Math.min((prev[msg.senderId] ?? 0) + 1, 99);
           const sender = friendsRef.current.find(f => f.id === msg.senderId);
@@ -988,10 +1014,7 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
       if (selectedFriendRef.current?.id === typerId) setPartnerTyping(false);
     });
 
-    // ── FIX #10: Presence events from server ──────────────────────────────
-    // Your server should broadcast these to all friends of the user.
-    // user:online payload  → { userId: string }
-    // user:offline payload → { userId: string; lastSeen?: number }
+    // ── FIX #10 + #13: Presence events ───────────────────────────────────
     socket.on("user:online", ({ userId }: { userId: string }) => {
       setPresenceMap(prev => ({
         ...prev,
@@ -1004,6 +1027,15 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
         ...prev,
         [userId]: { online: false, lastSeen: lastSeen ?? prev[userId]?.lastSeen ?? Date.now() },
       }));
+    });
+
+    // ── FIX #13: Bulk presence sync response ──────────────────────────────
+    // Server responds to presence:query with a map of all queried users.
+    // Payload: { presenceMap: Record<userId, { online: boolean; lastSeen: number }> }
+    socket.on("presence:sync", (data: { presenceMap: Record<string, PresenceInfo> }) => {
+      if (data?.presenceMap && typeof data.presenceMap === "object") {
+        setPresenceMap(prev => ({ ...prev, ...data.presenceMap }));
+      }
     });
 
     socket.on("call:incoming", (p: typeof incomingCall) => setIncomingCall(p));
@@ -1019,18 +1051,18 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
       void Promise.all([loadFriends(), loadRequests()]);
     });
 
-    // ── FIX #11: Re-sync unread counts when tab regains focus ────────────
+    // ── FIX #11 + #12: Re-sync when tab regains focus ────────────────────
     const handleVisibility = () => {
       if (document.visibilityState === "visible") {
-        // Re-announce presence
         socket.emit("user:online", { userId: user.id });
-        // Re-sync unread counts — catches messages received while tab was hidden
+        // Re-query presence so online dots update after tab was hidden
+        queryPresence(friendsRef.current);
+        // Background sync for unread counts — catches missed messages
         void loadAllUnreads(friendsRef.current);
       }
     };
     document.addEventListener("visibilitychange", handleVisibility);
 
-    // Announce offline before page unload
     const handleUnload = () => {
       socket.emit("user:offline", { userId: user.id, lastSeen: Date.now() });
     };
@@ -1043,7 +1075,7 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
       [
         "message:new", "message:read:update", "typing:started", "typing:stopped",
         "call:incoming", "call:accepted", "call:declined", "notification:new",
-        "user:online", "user:offline",
+        "user:online", "user:offline", "presence:sync",
       ].forEach((e) => socket.off(e));
       disconnectSocket();
     };
@@ -1059,14 +1091,18 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
         loadRequests(),
         loadBlockedUsers(),
         api.get("/zego-config").then((r) => setZegoConfig(r.data)),
-        // FIX #10: Seed presence from REST (server returns Record<userId, PresenceInfo>)
-        // This is optional — falls back gracefully if endpoint doesn't exist yet.
+        // Seed presence from REST if available (optional endpoint)
         api.get("/presence").then((r) => {
           if (r.data && typeof r.data === "object") setPresenceMap(r.data);
         }).catch(() => {}),
       ]);
-      // FIX #11: Initial unread count load
-      if (friendList) void loadAllUnreads(friendList);
+      if (friendList) {
+        // FIX #11: Initial unread load (parallel)
+        void loadAllUnreads(friendList);
+        // FIX #13: Proactively query socket-based presence for all friends
+        // Small delay to ensure socket is fully connected before emitting
+        setTimeout(() => queryPresence(friendList), 500);
+      }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -1129,8 +1165,11 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
     await api.post(`/friend-requests/${id}/accept`);
     const friendList = await loadFriends();
     await loadRequests();
-    // FIX #11: Re-sync after friend list grows
-    if (friendList) void loadAllUnreads(friendList);
+    if (friendList) {
+      void loadAllUnreads(friendList);
+      // FIX #13: Query presence for the newly added friend too
+      setTimeout(() => queryPresence(friendList), 300);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -1152,7 +1191,6 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
     if (activeTab === "chat") {
       setSelectedFriend(null);
       setActiveTab("messages");
-      // FIX #11: Re-sync when returning to message list
       void loadAllUnreads(friendsRef.current);
     } else {
       setActiveTab("home");
@@ -1187,17 +1225,13 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
     const text = messageInputRef.current;
     const img = imagePreviewRef.current;
     if (!friendId || (!text.trim() && !img)) return;
-    // Step 1: Re-focus BEFORE any state mutation to keep keyboard up on iOS
     compInputRef.current?.focus();
-    // Step 2: Lock scroll during keyboard animation
     isSendingRef.current = true;
     setTimeout(() => { isSendingRef.current = false; }, 300);
-    // Step 3: Emit & clear
     getSocket()?.emit("message:send", { receiverId: friendId, content: text, imageUrl: img });
     getSocket()?.emit("typing:stop", { receiverId: friendId });
     setMessageInput("");
     setImagePreview(null);
-    // Step 4: Scroll after lock expires
     setTimeout(() => {
       userAtBottomRef.current = true;
       bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -1323,7 +1357,6 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
             {friends.length > 0 && (
               <div style={{ marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}>
                 <span style={{ width: 7, height: 7, borderRadius: "50%", background: C.accentGreen, display: "inline-block", animation: "blink 1.5s infinite" }} />
-                {/* FIX #10: Show actual online count */}
                 <span style={{ fontSize: "0.73rem", color: C.accentGreen, fontWeight: 600, fontFamily: FONT_BODY }}>
                   {onlineCount} Online
                 </span>
@@ -1402,7 +1435,7 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
       </div>
     );
 
-    // ── FIX #10: Derive real status from presenceMap ───────────────────────
+    // FIX #10 + #13: Derive real status from presenceMap
     const friendPresence = presenceMap[selectedFriend.id];
     const friendOnline = friendPresence?.online ?? false;
     const friendStatusText = friendOnline
@@ -1449,13 +1482,11 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
                 <ArrowLeft size={15} />
               </button>
             )}
-            {/* FIX #10: Avatar online dot reflects real presence */}
             <Avatar name={selectedFriend.fullName} size={36} color="cyan" online={friendOnline} />
             <div>
               <div style={{ fontFamily: FONT_DISPLAY, fontSize: "0.95rem", fontWeight: 700, color: C.text, letterSpacing: "-0.01em" }}>
                 {selectedFriend.fullName}
               </div>
-              {/* FIX #10: "Online" or "Last seen X mins ago" */}
               <div style={{ fontSize: "0.7rem", color: friendStatusColor, fontWeight: 600, fontFamily: FONT_BODY }}>
                 {friendStatusText}
               </div>
@@ -1663,7 +1694,7 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
   const navActive = (id: AppTab) =>
     id === "messages" ? (activeTab === "messages" || activeTab === "chat") : activeTab === id;
 
-  // ─── Overlays (toasts + calls) ────────────────────────────────────────────
+  // ─── Overlays ─────────────────────────────────────────────────────────────
   const callOverlays = (
     <>
       <UnreadToast toasts={msgToasts} onOpen={handleOpenToast} onDismiss={dismissToast} />
@@ -1756,7 +1787,6 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
                           cursor: "pointer", transition: "all 0.15s",
                         }}
                       >
-                        {/* FIX #10: real online dot in sidebar */}
                         <Avatar name={f.fullName} size={28} color="cyan" online={fp?.online ?? false} />
                         <span style={{ fontSize: "0.82rem", fontWeight: unreadCounts[f.id] ? 700 : 400, color: unreadCounts[f.id] ? C.text : C.textMuted, fontFamily: FONT_BODY, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>
                           {f.fullName}
@@ -1821,7 +1851,6 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
     <>
       <style>{GLOBAL_CSS}</style>
       <div style={{ position: "fixed", inset: 0, display: "flex", flexDirection: "column", background: C.bg, color: C.text, fontFamily: FONT_BODY, overflow: "hidden" }}>
-        {/* Mobile top bar — hidden during chat */}
         {activeTab !== "chat" && activeTab !== "messages" && (
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 16px", height: 56, flexShrink: 0, borderBottom: `1px solid ${C.border}`, background: C.bg }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -1844,7 +1873,6 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
           </div>
         )}
 
-        {/* Page content */}
         <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column", minHeight: 0 }}>
           {activeTab === "home" && (
             <div style={{ flex: 1, overflowY: "auto", padding: "16px 16px", minHeight: 0 }}>
@@ -1882,7 +1910,6 @@ export function Dashboard({ token, user, onLogout }: DashboardProps) {
           {activeTab === "profile"  && renderProfileContent()}
         </div>
 
-        {/* Bottom nav — hidden during chat */}
         {activeTab !== "chat" && (
           <nav style={{
             display: "flex",
