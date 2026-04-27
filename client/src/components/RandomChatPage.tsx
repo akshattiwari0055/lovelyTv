@@ -1478,4 +1478,3 @@ export function RandomChatPage({ token, user }: RandomChatPageProps) {
       </div>
     </>
   );
-}

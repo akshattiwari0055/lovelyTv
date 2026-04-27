@@ -2,6 +2,21 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
+function envValue(name: string, fallback = "") {
+  return (process.env[name] ?? fallback).trim();
+}
+
+function parseBoolean(value: string | undefined, fallback = false) {
+  if (value === undefined) return fallback;
+  return ["1", "true", "yes", "on"].includes(value.trim().toLowerCase());
+}
+
+const smtpPort = Number(envValue("SMTP_PORT", "587"));
+const smtpHost = envValue("SMTP_HOST", "smtp.gmail.com");
+const smtpUser = envValue("SMTP_USER");
+const smtpPass = envValue("SMTP_PASS");
+const normalizedSmtpPass = smtpHost.includes("gmail.com") ? smtpPass.replace(/\s+/g, "") : smtpPass;
+
 function parseAllowedOrigins() {
   const values = [
     process.env.CLIENT_URL,
@@ -26,10 +41,10 @@ export const config = {
   zegoAppId: Number(process.env.ZEGO_APP_ID ?? 0),
   zegoServerSecret: process.env.ZEGO_SERVER_SECRET ?? "",
   googleClientId: process.env.GOOGLE_CLIENT_ID ?? "",
-  smtpHost: process.env.SMTP_HOST ?? "smtp.gmail.com",
-  smtpPort: Number(process.env.SMTP_PORT ?? 587),
-  smtpSecure: process.env.SMTP_SECURE === "true",
-  smtpUser: process.env.SMTP_USER ?? "",
-  smtpPass: process.env.SMTP_PASS ?? "",
-  mailFrom: process.env.MAIL_FROM ?? "CampusTV <no-reply@example.com>"
+  smtpHost,
+  smtpPort,
+  smtpSecure: parseBoolean(process.env.SMTP_SECURE, smtpPort === 465),
+  smtpUser,
+  smtpPass: normalizedSmtpPass,
+  mailFrom: envValue("MAIL_FROM", smtpUser ? `CampusTV <${smtpUser}>` : "CampusTV <no-reply@example.com>")
 };
